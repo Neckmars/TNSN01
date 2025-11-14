@@ -48,10 +48,11 @@ int velEnc[]       = {0, 0};
 int velEncSlack[]  = {0, 0};
 
 // Goal
-float xGoal[] = {0.0, 0.3, 1.0, 1.0};
-float yGoal[] = {0.0, 0.0, 1.0, 2.0};
-int seq = 1;
+float xGoal[] = {1.0, 1.0, 1.0};
+float yGoal[] = {0.0, 1.0, 2.0};
+float thetaGoal;
 int maxSeq = 3;
+int seq = 0;
 
 // Error 
 double errorTheta = PI/2;
@@ -65,6 +66,9 @@ float eintegral[] = {0.0, 0.0};
 float sampleT = 0.1;
 long prevT = 0;
 long time_prev, dt;
+
+bool changingPosition = true;
+bool changingOrientation = false;
 
 void setup() {
   Serial.begin(9600);
@@ -123,10 +127,27 @@ void loop() {
     }
     PositionEstimation(deltaT);
 
-    if (seq < maxSeq) {
+    if (changingOrientation) {
+      thetaGoal = acos((yGoal[seq+1] - yGoal[seq])/(xGoal[seq+1] - xGoal[seq]));
+
+      if (fabs(thetaGoal) == PI) {
+        StopMotors();
+        delay(100);
+        seq++;
+        changingOrientation = true;
+        changingPosition = false;
+      }
+      else {
+        CalculateOrientationError(thetaGoal, vx, vw, errorTheta);
+      }
+    }
+    if (changingPosition) {
       CalculatePositionError(xGoal[seq], yGoal[seq], vx, vw);
     }
-    else {
+
+    
+
+    if(seq >= maxSeq) {
       StopMotors();
     }
 
@@ -134,10 +155,10 @@ void loop() {
 
     RPMtoPWM(velAng[RIGHT], velTarget[RIGHT], deltaT, pwr[RIGHT], RIGHT);
     RPMtoPWM(velAng[LEFT], velTarget[LEFT], deltaT, pwr[LEFT], LEFT);
-    //SetMotor(pwr[RIGHT], PWMA_R, PWMB_R);
-    //SetMotor(pwr[LEFT], PWMA_L, PWMB_L);
-    SetMotor(120, PWMA_R, PWMB_R);
-    SetMotor(120, PWMA_L, PWMB_L);
+    SetMotor(pwr[RIGHT], PWMA_R, PWMB_R);
+    SetMotor(pwr[LEFT], PWMA_L, PWMB_L);
+    //SetMotor(120, PWMA_R, PWMB_R);
+    //SetMotor(120, PWMA_L, PWMB_L);
 
     // Print estimated pose
     Serial.print("X = ");
@@ -155,9 +176,19 @@ void loop() {
   // Logic to change sequence
   double errorX = xGoal[seq] - x;
   double errorY = yGoal[seq] - y;
-  if((sqrt(errorX*errorX + errorY*errorY) < 0.03)){
+  if((sqrt(errorX*errorX + errorY*errorY) < 0.02) && changingPosition){
     StopMotors();
     delay(100);
+    changingOrientation = true;
+    changingPosition = false;
+  }
+
+  if (errorTheta < 0.1 && changingOrientation) {
+    StopMotors();
+    delay(100);
+    seq++;
+    changingOrientation = false;
+    changingPosition = true;
   }
 }
 
