@@ -50,7 +50,7 @@ void encoder2B_ISR() {
   else encoderCount2--;
 }
 
-void setup() {
+/*void setup() {
   Serial.begin(9600);
 
   pinMode(motorPWM1a, OUTPUT);
@@ -93,4 +93,4 @@ void loop() {
     analogWrite(motorPWM1a, PWMspeed);    // Speed (0–255)
     PWMspeed = PWMspeed + 20; 
   }
-}
+}*/
