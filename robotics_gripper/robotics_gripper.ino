@@ -42,9 +42,8 @@ void loop() {
   duration = pulseIn(echoPin, HIGH);
   distance = microsecondsToCentimeters(duration);
 
-  Serial.print(cm);
-  Serial.print("cm");
-  Serial.println();
+  Serial.print(distance);
+  Serial.println("cm");
 
   if(distance <= DISTANCE_FROM_GRIPPER){ // Might be inacurate when close range in practice so might have to do it "blind", i.e move forward x amount, then do closing
     pickUpAndStore();
