@@ -1,18 +1,18 @@
-#define LT_L3_PIN A0
-#define LT_L2_PIN A1
-#define LT_L1_PIN A2
-#define LT_R1_PIN A3
+#define LT_L3_PIN A5
+#define LT_L2_PIN A4
+#define LT_L1_PIN A3
+#define LT_R1_PIN A2
 // Middle of line
-#define LT_R2_PIN A4
-#define LT_R3_PIN A5
+#define LT_R2_PIN A1
+#define LT_R3_PIN A0
 
-#define MOTORLEFT1 6
-#define MOTORLEFT2 9
-#define MOTORRIGHT1 11
-#define MOTORRIGHT2 10
+#define MOTORLEFT1 9
+#define MOTORLEFT2 6
+#define MOTORRIGHT1 10
+#define MOTORRIGHT2 11
 
-#define ENCODER_RIGHT_A 2
-#define ENCODER_RIGHT_B 3
+#define ENCODER_RIGHT_A 3
+#define ENCODER_RIGHT_B 2
 #define ENCODER_LEFT_A 0
 #define ENCODER_LEFT_B 1
 
@@ -200,7 +200,7 @@ void turnRight() {
   analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 0);    // Speed (0–255)
 
-  while (encoderRight < 3840 * 1.25 || encoderLeft > -3840 / 2) {
+  while (encoderLeft < 3840 * 1.25 || encoderRight > -3840 / 2) {
 
 
     if (encoderLeft > 3840 * 1.25) {
@@ -223,7 +223,7 @@ void turnLeft() {
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
 
-  while (encoderLeft < 3840 * 1.25 || encoderRight > -3840 / 2) {
+  while (encoderRight < 3840 * 1.25 || encoderLeft > -3840 / 2) {
 
     if (encoderRight > 3840 * 1.25) {
       analogWrite(MOTORRIGHT1, 0);
