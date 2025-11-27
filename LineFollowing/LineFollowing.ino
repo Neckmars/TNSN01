@@ -1,3 +1,5 @@
+#include <Servo.h>
+
 #define LT_L3_PIN A5
 #define LT_L2_PIN A4
 #define LT_L1_PIN A3
@@ -6,19 +8,37 @@
 #define LT_R2_PIN A1
 #define LT_R3_PIN A0
 
-#define MOTORLEFT1 9
+#define MOTORLEFT1 5
 #define MOTORLEFT2 6
-#define MOTORRIGHT1 10
+#define MOTORRIGHT1 3
 #define MOTORRIGHT2 11
 
-#define ENCODER_RIGHT_A 3
+#define ENCODER_RIGHT_A 4
 #define ENCODER_RIGHT_B 2
 #define ENCODER_LEFT_A 0
 #define ENCODER_LEFT_B 1
 
-#define STARTBUTTON 13
+#define TRIGPIN 8
+#define ECHOPIN 7
+
+#define GRIPPERPIN 9
+#define VERTICALPIN 10
+
+#define GRIPPER_CLOSED_POS 10
+#define GRIPPER_OPEN_POS 50
+#define GRIPPER_DROPOFF_POS 15
+#define VERTICAL_DOWN_POS 175
+#define VERTICAL_UP_POS 65
+#define VERTICAL_DRIVE_POS 85
+#define GRIPPER_UP_POS 30
+#define DISTANCE_FROM_GRIPPER 8
+#define STARTBUTTON 12
 
 #define ON_LINE 1200  // TODO: Value representing a reading ontop of the line
+
+
+Servo gripperServo;
+Servo verticalServo;
 
 // In order that would represent physical location, needed to calculate weights based on horizontal position
 const int sensorPins[6] = {
@@ -41,9 +61,29 @@ const int baseSpeed = 120;
 volatile long encoderRight = 0;
 volatile long encoderLeft = 0;
 
+long duration, distance;
+
 void setup() {
   // put your setup code here, to run once:
+
+  pinMode(MOTORLEFT1, OUTPUT);
+  pinMode(MOTORLEFT2, OUTPUT);
+  pinMode(MOTORRIGHT1, OUTPUT);
+  pinMode(MOTORRIGHT2, OUTPUT);
+  digitalWrite(MOTORLEFT1, LOW);
+  digitalWrite(MOTORLEFT2, LOW);
+  digitalWrite(MOTORRIGHT1, LOW);
+  digitalWrite(MOTORRIGHT2, LOW);
+
   Serial.begin(9600);
+
+  gripperServo.attach(GRIPPERPIN);
+  verticalServo.attach(VERTICALPIN);
+  gripperServo.write(GRIPPER_OPEN_POS);
+  verticalServo.write(VERTICAL_DRIVE_POS);
+  delay(200);
+  gripperServo.detach();
+  verticalServo.detach();
 
   pinMode(LT_L3_PIN, INPUT);
   pinMode(LT_L2_PIN, INPUT);
@@ -52,15 +92,13 @@ void setup() {
   pinMode(LT_R2_PIN, INPUT);
   pinMode(LT_R3_PIN, INPUT);
 
-  pinMode(MOTORLEFT1, OUTPUT);
-  pinMode(MOTORLEFT2, OUTPUT);
-  pinMode(MOTORRIGHT1, OUTPUT);
-  pinMode(MOTORRIGHT2, OUTPUT);
-
   pinMode(ENCODER_RIGHT_A, INPUT_PULLUP);
   pinMode(ENCODER_RIGHT_B, INPUT_PULLUP);
   pinMode(ENCODER_LEFT_A, INPUT_PULLUP);
   pinMode(ENCODER_LEFT_B, INPUT_PULLUP);
+  
+  pinMode(TRIGPIN, OUTPUT);
+  pinMode(ECHOPIN, INPUT);
 
   attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A), ENCODER_RIGHT_A_ISR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_B), ENCODER_RIGHT_B_ISR, CHANGE);
@@ -70,15 +108,20 @@ void setup() {
   pinMode(STARTBUTTON, INPUT_PULLUP);
 
   while (digitalRead(STARTBUTTON) == HIGH);
+
 }
 
 void loop() {
+
+
   //TODO: Might be good to normalize sensor readings, would require a calibration step where the robot sweeps over the line to see highest and lowest reading for each sensor.
-  Serial.println(encoderLeft);
-  Serial.println(encoderRight);
+  //Serial.println(encoderLeft);
+  //Serial.println(encoderRight);
   int leftTurnSensor = analogRead(sensorPins[0]);
   int rightTurnSensor = analogRead(sensorPins[5]);
-
+  // Read distance
+  readDistanceWithGrab();
+  
   if (leftTurnSensor > 600) {
     turnLeft();
   } else if (rightTurnSensor > 600) {
@@ -92,6 +135,54 @@ void loop() {
     int rightMotor = baseSpeed + correction;
 
     driveMotors(leftMotor, rightMotor);
+  }
+}
+
+long microsecondsToCentimeters(long microseconds) {
+  return microseconds / 29 / 2; // The speed of sound is 340 m/s or 29 microseconds per centimeter.
+                                // The ping travels out and back, so to find the distance of the object we
+                                // take half of the distance travelled.
+}
+
+void pickUpAndStore(){
+  analogWrite(MOTORLEFT1, 0);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 0);     // Speed (0–255)
+  analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 0);
+  verticalServo.attach(VERTICALPIN);
+  gripperServo.attach(GRIPPERPIN);
+  Serial.println("Vertical down position!");
+  verticalServo.write(VERTICAL_DOWN_POS);
+  delay(1000);
+  gripperServo.write(GRIPPER_CLOSED_POS);
+  Serial.println("CLOSING GRIPPERS!");
+  delay(1000);
+  verticalServo.write(VERTICAL_UP_POS);
+  Serial.println("MOVING GRIPPERS UP!");
+  delay(1000);
+  gripperServo.write(GRIPPER_OPEN_POS);
+  Serial.println("OPENING GRIPPERS UP!");
+  delay(1000);
+  verticalServo.write(VERTICAL_DRIVE_POS);
+  delay(1000);
+  verticalServo.detach();
+  gripperServo.detach();
+
+}
+
+void readDistanceWithGrab(){
+  digitalWrite(TRIGPIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIGPIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIGPIN, LOW);
+
+  duration = pulseIn(ECHOPIN, HIGH);
+  distance = microsecondsToCentimeters(duration);
+
+  if(distance <= DISTANCE_FROM_GRIPPER){ // Might be inacurate when close range in practice so might have to do it "blind", i.e move forward x amount, then do closing
+    Serial.println("Object too close, grabbing it!");
+    pickUpAndStore();
   }
 }
 
