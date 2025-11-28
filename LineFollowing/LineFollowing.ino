@@ -18,6 +18,8 @@
 #define ENCODER_LEFT_A 0
 #define ENCODER_LEFT_B 1
 
+#define FULL_TURN 3840
+
 #define TRIGPIN 8
 #define ECHOPIN 7
 
@@ -36,6 +38,9 @@
 
 #define ON_LINE 1200  // TODO: Value representing a reading ontop of the line
 
+#define DEBUG_PID 0
+#define DEBUG_LINE_SENSORS 0
+#define DEBUG_TURN_SENSORS 1
 
 Servo gripperServo;
 Servo verticalServo;
@@ -49,14 +54,14 @@ const int sensorPins[6] = {
 int lastError;
 int integral;
 
-float Kp = 0.3;
+float Kp = 0.25;
 float Ki = 0.0002;
-float Kd = 0.2;
+float Kd = 5;
 
 
 const int MAX_CORRECTION = 55;
 
-const int baseSpeed = 120;
+const int baseSpeed = 200;
 
 volatile long encoderRight = 0;
 volatile long encoderLeft = 0;
@@ -96,7 +101,7 @@ void setup() {
   pinMode(ENCODER_RIGHT_B, INPUT_PULLUP);
   pinMode(ENCODER_LEFT_A, INPUT_PULLUP);
   pinMode(ENCODER_LEFT_B, INPUT_PULLUP);
-  
+
   pinMode(TRIGPIN, OUTPUT);
   pinMode(ECHOPIN, INPUT);
 
@@ -107,22 +112,26 @@ void setup() {
 
   pinMode(STARTBUTTON, INPUT_PULLUP);
 
-  while (digitalRead(STARTBUTTON) == HIGH);
-
+  while (digitalRead(STARTBUTTON) == HIGH)
+    ;
 }
 
 void loop() {
-
-
   //TODO: Might be good to normalize sensor readings, would require a calibration step where the robot sweeps over the line to see highest and lowest reading for each sensor.
-  //Serial.println(encoderLeft);
-  //Serial.println(encoderRight);
+  ////Serial.println(encoderLeft);
+  ////Serial.println(encoderRight);
   int leftTurnSensor = analogRead(sensorPins[0]);
   int rightTurnSensor = analogRead(sensorPins[5]);
   // Read distance
-  readDistanceWithGrab();
-  
+  //readDistanceWithGrab();
+
+  if (DEBUG_TURN_SENSORS) {
+    Serial.println("Left turn sensor: " + String(leftTurnSensor));
+    Serial.println("Right turn sensor: " + String(rightTurnSensor));
+  }
+
   if (leftTurnSensor > 600) {
+
     turnLeft();
   } else if (rightTurnSensor > 600) {
     turnRight();
@@ -131,46 +140,45 @@ void loop() {
     int error = calulateWeightedError();
     int correction = calculatePID(error);
 
-    int leftMotor = baseSpeed - correction;
-    int rightMotor = baseSpeed + correction;
+    int leftMotor = baseSpeed + correction;
+    int rightMotor = baseSpeed - correction;
 
     driveMotors(leftMotor, rightMotor);
   }
 }
 
 long microsecondsToCentimeters(long microseconds) {
-  return microseconds / 29 / 2; // The speed of sound is 340 m/s or 29 microseconds per centimeter.
-                                // The ping travels out and back, so to find the distance of the object we
-                                // take half of the distance travelled.
+  return microseconds / 29 / 2;  // The speed of sound is 340 m/s or 29 microseconds per centimeter.
+                                 // The ping travels out and back, so to find the distance of the object we
+                                 // take half of the distance travelled.
 }
 
-void pickUpAndStore(){
-  analogWrite(MOTORLEFT1, 0);  // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);     // Speed (0–255)
+void pickUpAndStore() {
+  analogWrite(MOTORLEFT1, 0);   // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 0);   // Speed (0–255)
   analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
   verticalServo.attach(VERTICALPIN);
   gripperServo.attach(GRIPPERPIN);
-  Serial.println("Vertical down position!");
+  //Serial.println("Vertical down position!");
   verticalServo.write(VERTICAL_DOWN_POS);
   delay(1000);
   gripperServo.write(GRIPPER_CLOSED_POS);
-  Serial.println("CLOSING GRIPPERS!");
+  //Serial.println("CLOSING GRIPPERS!");
   delay(1000);
   verticalServo.write(VERTICAL_UP_POS);
-  Serial.println("MOVING GRIPPERS UP!");
+  //Serial.println("MOVING GRIPPERS UP!");
   delay(1000);
   gripperServo.write(GRIPPER_OPEN_POS);
-  Serial.println("OPENING GRIPPERS UP!");
+  //Serial.println("OPENING GRIPPERS UP!");
   delay(1000);
   verticalServo.write(VERTICAL_DRIVE_POS);
   delay(1000);
   verticalServo.detach();
   gripperServo.detach();
-
 }
 
-void readDistanceWithGrab(){
+void readDistanceWithGrab() {
   digitalWrite(TRIGPIN, LOW);
   delayMicroseconds(2);
   digitalWrite(TRIGPIN, HIGH);
@@ -180,8 +188,8 @@ void readDistanceWithGrab(){
   duration = pulseIn(ECHOPIN, HIGH);
   distance = microsecondsToCentimeters(duration);
 
-  if(distance <= DISTANCE_FROM_GRIPPER){ // Might be inacurate when close range in practice so might have to do it "blind", i.e move forward x amount, then do closing
-    Serial.println("Object too close, grabbing it!");
+  if (distance <= DISTANCE_FROM_GRIPPER) {  // Might be inacurate when close range in practice so might have to do it "blind", i.e move forward x amount, then do closing
+    //Serial.println("Object too close, grabbing it!");
     pickUpAndStore();
   }
 }
@@ -194,48 +202,11 @@ void driveMotors(int left, int right) {
   analogWrite(MOTORRIGHT1, right);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
 
-  Serial.print("Left motor: ");
-  Serial.println(left);
-  Serial.print("Right motor: ");
-  Serial.println(right);
+  //Serial.print("Left motor: ");
+  //Serial.println(left);
+  //Serial.print("Right motor: ");
+  //Serial.println(right);
 }
-
-/*int calculateError(){
-  int L1 = analogRead(LT_L1_PIN);
-  int L2 = analogRead(LT_L2_PIN);
-  int L3 = analogRead(LT_L3_PIN);
-  int L4 = analogRead(LT_L4_PIN);
-
-  int R1 = analogRead(LT_R1_PIN);
-  int R2 = analogRead(LT_R2_PIN);
-  int R3 = analogRead(LT_R3_PIN);
-  int R4 = analogRead(LT_R4_PIN);
-
-  Serial.print("L1: "); 
-  Serial.print(L1);
-  Serial.print("  L2: "); 
-  Serial.print(L2);
-  Serial.print("  L3: "); 
-  Serial.print(L3);
-  Serial.print("  L4: "); 
-  Serial.print(L4);
-  Serial.print("  R1: "); 
-  Serial.print(R1);
-  Serial.print("  R2: "); 
-  Serial.print(R2);
-  Serial.print("  R3: "); 
-  Serial.print(R3);
-  Serial.print("  R4: "); 
-  Serial.println(R4);
-
-  int leftSum = L1 + L2 + L3 + L4;
-  int rightSum = R1 + R2 + R3 + R4;
-
-  // error = 0 -> on line
-  // error > 0 -> tilted right (need to turn left)
-  // error < 0 -> tilted left (need to turn right)
-  int error = leftSum - rightSum;
-}*/
 
 int calulateWeightedError() {
   long weightedSum = 0;
@@ -243,10 +214,13 @@ int calulateWeightedError() {
 
   for (int i = 1; i < 5; i++) {
     int raw = analogRead(sensorPins[i]);
-    Serial.print("Raw pin ");
-    Serial.print(i);
-    Serial.print(": ");
-    Serial.println(raw);
+    if (DEBUG_LINE_SENSORS) {
+      Serial.print("Raw pin ");
+      Serial.print(i);
+      Serial.print(": ");
+      Serial.println(raw);
+    }
+
     // raw = constrain(raw, sensorMin[i], sensorMax[i]);
     // int normalized = map(raw, sensorMin[i], sensorMax[i], 0, 1000);
 
@@ -268,16 +242,24 @@ int calulateWeightedError() {
 int calculatePID(int error) {
 
   float e = (float)error;
-  Serial.print("Error: ");
-  Serial.println(e);
+  //Serial.print("Error: ");
+  //Serial.println(e);
 
-  integral += e;
+  // integral += e;
   float derivative = e - lastError;
+  lastError = e;
 
   float correction = Kp * e /*+ Ki * integral*/ + Kd * derivative;
   correction = constrain(correction, -MAX_CORRECTION, MAX_CORRECTION);
-  Serial.print("Correction: ");
-  Serial.println(correction);
+  //Serial.print("Correction: ");
+  //Serial.println(correction);
+  if (DEBUG_PID) {
+    Serial.print("P-term: ");
+    Serial.println(String(e * Kp));
+    Serial.print("D-term: ");
+    Serial.println(Kd * derivative);
+    Serial.println("Correction: " + String(correction));
+  }
   return (int)correction;
 }
 
@@ -291,13 +273,13 @@ void turnRight() {
   analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 0);    // Speed (0–255)
 
-  while (encoderLeft < 3840 * 1.25 || encoderRight > -3840 / 2) {
+  while (encoderLeft < FULL_TURN * 1.25 || encoderRight > -FULL_TURN / 2) {
 
 
-    if (encoderLeft > 3840 * 1.25) {
+    if (encoderLeft > FULL_TURN * 1.25) {
       analogWrite(MOTORLEFT1, 0);
     }
-    if (encoderRight < -3840 / 2) {
+    if (encoderRight < -FULL_TURN / 2) {
       analogWrite(MOTORRIGHT2, 0);
     }
   }
@@ -306,7 +288,7 @@ void turnRight() {
 void turnLeft() {
   encoderRight = 0;
   encoderLeft = 0;
-   Serial.println("I am turning left!");
+  Serial.println("I am turning left!");
 
 
   analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
@@ -314,12 +296,12 @@ void turnLeft() {
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
 
-  while (encoderRight < 3840 * 1.25 || encoderLeft > -3840 / 2) {
+  while (encoderRight < FULL_TURN * 1.25 || encoderLeft > -FULL_TURN / 2) {
 
-    if (encoderRight > 3840 * 1.25) {
+    if (encoderRight > FULL_TURN * 1.25) {
       analogWrite(MOTORRIGHT1, 0);
     }
-    if (encoderLeft < -3840 / 2) {
+    if (encoderLeft < -FULL_TURN / 2) {
       analogWrite(MOTORLEFT2, 0);
     }
   }
