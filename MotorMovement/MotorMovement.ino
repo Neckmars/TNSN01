@@ -205,9 +205,7 @@ void CalculatePositionError(double xGoal_l, double yGoal_l, double &vx, double &
   double ct = cos(theta); 
   double st = sin(theta);
 
-  vw = 0;
   vx = vx_global*ct + st * vy_global;
-
 }
 
 void CalculateOrientationError(double thetaGoal_l, double &vel, double &vw, double &errorTheta){
