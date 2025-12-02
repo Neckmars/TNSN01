@@ -19,6 +19,7 @@
 #define ENCODER_LEFT_B 1
 
 #define FULL_TURN 3840
+#define TURNRATIO 0.65
 
 #define TRIGPIN 8
 #define ECHOPIN 7
@@ -45,6 +46,8 @@
 Servo gripperServo;
 Servo verticalServo;
 
+int timer = 0;
+
 // In order that would represent physical location, needed to calculate weights based on horizontal position
 const int sensorPins[6] = {
   LT_L3_PIN, LT_L2_PIN, LT_L1_PIN,
@@ -61,7 +64,7 @@ float Kd = 5;
 
 const int MAX_CORRECTION = 55;
 
-const int baseSpeed = 200;
+const int baseSpeed = 100;
 
 volatile long encoderRight = 0;
 volatile long encoderLeft = 0;
@@ -112,11 +115,10 @@ void setup() {
 
   pinMode(STARTBUTTON, INPUT_PULLUP);
 
-  while (digitalRead(STARTBUTTON) == HIGH)
-    ;
+  while (digitalRead(STARTBUTTON) == HIGH);
 }
 
-void loop() {
+void loop() { 
   //TODO: Might be good to normalize sensor readings, would require a calibration step where the robot sweeps over the line to see highest and lowest reading for each sensor.
   ////Serial.println(encoderLeft);
   ////Serial.println(encoderRight);
@@ -125,18 +127,16 @@ void loop() {
   // Read distance
   //readDistanceWithGrab();
 
-  if (DEBUG_TURN_SENSORS) {
+  if (DEBUG_TURN_SENSORS && timer % 2000) {
     Serial.println("Left turn sensor: " + String(leftTurnSensor));
     Serial.println("Right turn sensor: " + String(rightTurnSensor));
   }
+  timer++;
+  
 
-  if (leftTurnSensor > 600) {
-
-    turnLeft();
-  } else if (rightTurnSensor > 600) {
-    turnRight();
-  } else {
-
+  if (leftTurnSensor > 600) {turnLeft();}
+  else if (rightTurnSensor > 600) {turnRight();} 
+  else {
     int error = calulateWeightedError();
     int correction = calculatePID(error);
 
@@ -154,12 +154,13 @@ long microsecondsToCentimeters(long microseconds) {
 }
 
 void pickUpAndStore() {
-  analogWrite(MOTORLEFT1, 0);   // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);   // Speed (0–255)
-  analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 0);
+  analogWrite(MOTORLEFT1, 0);   //HIGH - forwards
+  analogWrite(MOTORLEFT2, 0);   //HIGH - Backwards
+  analogWrite(MOTORRIGHT2, 0);  //HIGH - forwards
+  analogWrite(MOTORRIGHT1, 0);  //HIGH - Backwards  
   verticalServo.attach(VERTICALPIN);
   gripperServo.attach(GRIPPERPIN);
+  
   //Serial.println("Vertical down position!");
   verticalServo.write(VERTICAL_DOWN_POS);
   delay(1000);
@@ -196,7 +197,7 @@ void readDistanceWithGrab() {
 
 void driveMotors(int left, int right) {
   analogWrite(MOTORLEFT1, left);  // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);     // Speed (0–255)
+  analogWrite(MOTORLEFT2, 0);     // Speed (0-255)
 
   // RIGHT motor
   analogWrite(MOTORRIGHT1, right);  // HIGH = forward, change if reversed
@@ -269,19 +270,18 @@ void turnRight() {
 
   Serial.println("I am turning right!");
   analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 150);
+  analogWrite(MOTORRIGHT2, 0);
   analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);    // Speed (0–255)
+  analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
 
-  while (encoderLeft < FULL_TURN * 1.25 || encoderRight > -FULL_TURN / 2) {
+  while (encoderLeft < FULL_TURN * TURNRATIO /* || encoderRight > -FULL_TURN * TURNRATIO*/) {
 
-
-    if (encoderLeft > FULL_TURN * 1.25) {
+    if (encoderLeft >= FULL_TURN * TURNRATIO) {
       analogWrite(MOTORLEFT1, 0);
-    }
-    if (encoderRight < -FULL_TURN / 2) {
+    }/*
+    if (encoderRight < -FULL_TURN / 3) {
       analogWrite(MOTORRIGHT2, 0);
-    }
+    }*/
   }
 }
 
@@ -292,19 +292,21 @@ void turnLeft() {
 
 
   analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 150);   // Speed (0–255)
+  analogWrite(MOTORLEFT2, 0);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
 
-  while (encoderRight < FULL_TURN * 1.25 || encoderLeft > -FULL_TURN / 2) {
+  while (encoderRight < FULL_TURN * TURNRATIO /*|| encoderLeft > -FULL_TURN / 3*/) {
 
-    if (encoderRight > FULL_TURN * 1.25) {
+    if (encoderRight >= FULL_TURN * TURNRATIO) {
       analogWrite(MOTORRIGHT1, 0);
     }
-    if (encoderLeft < -FULL_TURN / 2) {
+    /*if (encoderLeft <= -FULL_TURN / 3) {
       analogWrite(MOTORLEFT2, 0);
-    }
+    }*/
   }
+  Serial.println("I am done turning left!");
+
 }
 
 // Decode direction from encoder

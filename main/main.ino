@@ -19,6 +19,7 @@
 #define ENCODER_LEFT_B 1
 
 #define FULL_TURN 3840
+#define TURNRATIO 0.65
 
 #define TRIGPIN 8
 #define ECHOPIN 7
@@ -27,20 +28,21 @@
 #define VERTICALPIN 10
 
 #define GRIPPER_CLOSED_POS 10
-#define GRIPPER_OPEN_POS 50
+#define GRIPPER_OPEN_POS 70
 #define GRIPPER_DROPOFF_POS 15
 #define VERTICAL_DOWN_POS 175
 #define VERTICAL_UP_POS 65
 #define VERTICAL_DRIVE_POS 85
 #define GRIPPER_UP_POS 30
-#define DISTANCE_FROM_GRIPPER 8
+#define DISTANCE_FROM_GRIPPER -1
+
 #define STARTBUTTON 12
 
-#define ON_LINE 1200  // TODO: Value representing a reading ontop of the line
+#define ON_LINE 850  // TODO: Value representing a reading ontop of the line
 
 #define DEBUG_PID 0
 #define DEBUG_LINE_SENSORS 0
-#define DEBUG_TURN_SENSORS 1
+#define DEBUG_TURN_SENSORS 0
 
 Servo gripperServo;
 Servo verticalServo;
@@ -49,6 +51,10 @@ Servo verticalServo;
 const int sensorPins[6] = {
   LT_L3_PIN, LT_L2_PIN, LT_L1_PIN,
   LT_R1_PIN, LT_R2_PIN, LT_R3_PIN
+};
+
+const int weightArray[6] = {
+  1500, 1000, 500, -500, -1000, -1500
 };
 
 // Important that these are int, not bool
@@ -60,7 +66,7 @@ int hasForwardTurn = 0;
 int lastError;
 int integral;
 
-float Kp = 0.25;
+float Kp = 0.35;
 float Ki = 0.0002;
 float Kd = 5;
 
@@ -81,8 +87,8 @@ enum direction {
   BACKWARD
 };
 
-int currentIntersection = 0;
-direction intersectionTurns[14] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT, /*no line - keep going forward,*/ RIGHT, LEFT, LEFT, FORWARD, FORWARD /*Is now in final dead end*/, FORWARD, LEFT, LEFT };
+int currentIntersection = 5;
+direction intersectionTurns[14] = { LEFT, LEFT, LEFT, FORWARD, LEFT, /*no line - keep going forward,*/ RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
 
 //TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
 // Option 1:
@@ -143,23 +149,41 @@ void setup() {
 }
 
 void loop() {
+
   //TODO: Might be good to normalize sensor readings, would require a calibration step where the robot sweeps over the line to see highest and lowest reading for each sensor.
   ////Serial.println(encoderLeft);
   ////Serial.println(encoderRight);
+  long sum = 0;
+
+  for (int i = 1; i < 5; i++) {
+    int raw = analogRead(sensorPins[i]);
+    sum += raw;
+  }
+  if (sum < 800) {
+    Serial.println("sum: " + String(sum));
+    noLineLogic();
+  }
+
   int leftTurnSensor = analogRead(sensorPins[0]);
   int rightTurnSensor = analogRead(sensorPins[5]);
   // Read distance
-  //readDistanceWithGrab();
+
+  if (readDistance() <= DISTANCE_FROM_GRIPPER) {  // Might be inacurate when close range in practice so might have to do it "blind", i.e move forward x amount, then do closing
+    //Serial.println("Object too close, grabbing it!");
+    pickUpAndStore();
+  }
+
+
 
   if (DEBUG_TURN_SENSORS) {
     Serial.println("Left turn sensor: " + String(leftTurnSensor));
     Serial.println("Right turn sensor: " + String(rightTurnSensor));
   }
 
-  if (leftTurnSensor > 600) {
+  if (leftTurnSensor > ON_LINE) {
     hasLeftTurn = 1;
   }
-  if (rightTurnSensor > 600) {
+  if (rightTurnSensor > ON_LINE) {
     hasRightTurn = 1;
   }
 
@@ -175,9 +199,9 @@ void loop() {
     // read sensors again to se when we exit the intersection
     leftTurnSensor = analogRead(sensorPins[0]);
     rightTurnSensor = analogRead(sensorPins[5]);
-    if (leftTurnSensor <= 600 && rightTurnSensor <= 600) {
+    if (leftTurnSensor <= ON_LINE && rightTurnSensor <= ON_LINE) {
       // We overshot the intersection, check for forward option
-      if (analogRead(sensorPins[2]) > 600 || analogRead(sensorPins[3] > 600)) {
+      if (analogRead(sensorPins[2]) > ON_LINE || analogRead(sensorPins[3]) > ON_LINE) {
         hasForwardTurn = 1;
       } else {
         hasForwardTurn = 0;
@@ -190,33 +214,30 @@ void loop() {
         // We found intersection, use map to choose turn
         chosenTurn = intersectionTurns[currentIntersection];
         currentIntersection++;
+        Serial.println("Intersection detected: " + String(currentIntersection));
       } else {
         // Only one possible turn, so choose it
-        if (hasLeftTurn) {
-          chosenTurn = LEFT;
-        } else if (hasRightTurn) {
+        if (hasRightTurn) {
           chosenTurn = RIGHT;
+        } else if (hasLeftTurn) {
+          chosenTurn = LEFT;
         } else if (hasForwardTurn) {
           chosenTurn = FORWARD;
-        } else {
-          // Dead end
-          chosenTurn = BACKWARD;
         }
       }
 
-      switch(chosenTurn) {
+      switch (chosenTurn) {
         case LEFT:
+          Serial.println("Switch case turning left");
           turnLeft();
           break;
         case RIGHT:
+          Serial.println("Switch case turning right");
           turnRight();
           break;
         case FORWARD:
+          Serial.println("Switch case FORWARD");
           followLine();
-          break;
-        case BACKWARD:
-        // TODO: Add U turn 
-        // uTurn();
           break;
       }
       // We are done with intersection, reset intersection checkers
@@ -256,24 +277,25 @@ void pickUpAndStore() {
   verticalServo.attach(VERTICALPIN);
   gripperServo.attach(GRIPPERPIN);
   //Serial.println("Vertical down position!");
+  delay(100);
   verticalServo.write(VERTICAL_DOWN_POS);
-  delay(1000);
+  delay(500);
   gripperServo.write(GRIPPER_CLOSED_POS);
   //Serial.println("CLOSING GRIPPERS!");
-  delay(1000);
+  delay(500);
   verticalServo.write(VERTICAL_UP_POS);
   //Serial.println("MOVING GRIPPERS UP!");
-  delay(1000);
+  delay(1200);
   gripperServo.write(GRIPPER_OPEN_POS);
+  delay(200);
   //Serial.println("OPENING GRIPPERS UP!");
-  delay(1000);
   verticalServo.write(VERTICAL_DRIVE_POS);
-  delay(1000);
+  delay(200);
   verticalServo.detach();
   gripperServo.detach();
 }
 
-void readDistanceWithGrab() {
+int readDistance() {
   digitalWrite(TRIGPIN, LOW);
   delayMicroseconds(2);
   digitalWrite(TRIGPIN, HIGH);
@@ -282,11 +304,7 @@ void readDistanceWithGrab() {
 
   duration = pulseIn(ECHOPIN, HIGH);
   distance = microsecondsToCentimeters(duration);
-
-  if (distance <= DISTANCE_FROM_GRIPPER) {  // Might be inacurate when close range in practice so might have to do it "blind", i.e move forward x amount, then do closing
-    //Serial.println("Object too close, grabbing it!");
-    pickUpAndStore();
-  }
+  return (distance);
 }
 
 void driveMotors(int left, int right) {
@@ -307,7 +325,7 @@ int calulateWeightedError() {
   long weightedSum = 0;
   long sum = 0;
 
-  for (int i = 1; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {
     int raw = analogRead(sensorPins[i]);
     if (DEBUG_LINE_SENSORS) {
       Serial.print("Raw pin ");
@@ -318,8 +336,8 @@ int calulateWeightedError() {
 
     // raw = constrain(raw, sensorMin[i], sensorMax[i]);
     // int normalized = map(raw, sensorMin[i], sensorMax[i], 0, 1000);
-
-    int weight = (i * 1000) - 2500;  // calculate weight for the pin (-3500 -2500 -1500 -500 +500 +1500 +2500 +3500)
+  
+    int weight = -weightArray[i];  // calculate weight for the pin (-3500 -2500 -1500 -500 +500 +1500 +2500 +3500)
     weightedSum += (long)raw * weight;
     // weightedSum += normalized * weight; // Using normalized readings
     sum += raw;  // Sum all readings (so we can normalize, as we dont care about how dark/light just relation to each other)
@@ -359,50 +377,113 @@ int calculatePID(int error) {
 }
 
 void turnRight() {
-  encoderRight = 0;
-  encoderLeft = 0;
+  // encoderRight = 0;
+  // encoderLeft = 0;
 
   Serial.println("I am turning right!");
   analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 150);
+  analogWrite(MOTORRIGHT2, 0);
   analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 0);    // Speed (0–255)
 
-  while (encoderLeft < FULL_TURN * 1.25 || encoderRight > -FULL_TURN / 2) {
-
-
-    if (encoderLeft > FULL_TURN * 1.25) {
-      analogWrite(MOTORLEFT1, 0);
-    }
-    if (encoderRight < -FULL_TURN / 2) {
-      analogWrite(MOTORRIGHT2, 0);
-    }
-  }
+  delay(500);
+  while (analogRead(sensorPins[5]) < ON_LINE)
+    ;
+  analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);   // Speed (0–255)
+  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 255);
+  delay(100);
+  forcePID();
 }
 
 void turnLeft() {
-  encoderRight = 0;
-  encoderLeft = 0;
+  //encoderRight = 0;
+  //encoderLeft = 0;
   Serial.println("I am turning left!");
 
-
+  analogWrite(MOTORLEFT1, 255);     // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);     // Speed (0–255)
+  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 255);
+  delay(100);
   analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 150);   // Speed (0–255)
+  analogWrite(MOTORLEFT2, 255);     // Speed (0–255)
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
+  
+  delay(200);
+  while (analogRead(sensorPins[1]) < ON_LINE)
+    ;
+  analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);   // Speed (0–255)
+  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 255);
+  delay(100);
+  forcePID();
+}
 
-  while (encoderRight < FULL_TURN * 1.25 || encoderLeft > -FULL_TURN / 2) {
-
-    if (encoderRight > FULL_TURN * 1.25) {
-      analogWrite(MOTORRIGHT1, 0);
-    }
-    if (encoderLeft < -FULL_TURN / 2) {
-      analogWrite(MOTORLEFT2, 0);
-    }
+void forcePID(){
+  for (int i = 0; i < 400; i++) {
+    followLine();
   }
 }
 
-// Decode direction from encoder
+void noLineLogic() {
+  bool foundLine = false;
+  driveMotors(170,160);
+  while (readDistance() > 15 && !foundLine) {
+    for (int i = 0; i < 6; i++) {
+      if (analogRead(sensorPins[i]) > ON_LINE) {
+        foundLine = true;
+        break;
+      }
+    }
+    delay(10);
+  }
+  if (foundLine) {
+    forcePID();
+    return;
+  }else if(currentIntersection == 5){
+    Serial.println("I am turning left!");
+
+  analogWrite(MOTORLEFT1, 150);     // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 0);     // Speed (0–255)
+  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 0);
+
+  delay(500);
+  while (analogRead(sensorPins[0]) < ON_LINE)
+    ;
+  analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);   // Speed (0–255)
+  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 255);
+  delay(100);
+  } 
+  else {
+    uTurn();
+  }
+}
+
+void uTurn() {
+  Serial.println("I am doing a u-turn!!");
+  analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);   // Speed (0–255)
+  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 0);
+
+  delay(200);
+  while (analogRead(sensorPins[0]) < ON_LINE);
+
+  analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);   // Speed (0–255)
+  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 255);
+  delay(100);
+  forcePID();
+}
+
 void ENCODER_RIGHT_A_ISR() {
   int stateA = digitalRead(ENCODER_RIGHT_A);
   int stateB = digitalRead(ENCODER_RIGHT_B);
