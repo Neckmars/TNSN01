@@ -87,7 +87,7 @@ enum direction {
   BACKWARD
 };
 
-int currentIntersection = 5;
+int currentIntersection = 0;
 direction intersectionTurns[14] = { LEFT, LEFT, LEFT, FORWARD, LEFT, /*no line - keep going forward,*/ RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
 
 //TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
