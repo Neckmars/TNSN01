@@ -38,12 +38,12 @@
 
 #define STARTBUTTON 12
 
-#define ON_LINE 850  // TODO: Value representing a reading ontop of the line
+#define ON_LINE 850  //Value for being on the line
 
 #define DEBUG_PID 0
 #define DEBUG_LINE_SENSORS 0
 #define DEBUG_TURN_SENSORS 0
-#define DEBUG_DISTANCE_SENSORS 1
+#define DEBUG_DISTANCE_SENSORS 0
 
 Servo gripperServo;
 Servo verticalServo;
@@ -74,7 +74,7 @@ float Kd = 0;
 
 const int MAX_CORRECTION = 55;
 
-const int baseSpeed = 200;
+const int baseSpeed = 255;
 
 volatile long encoderRight = 0;
 volatile long encoderLeft = 0;
@@ -93,15 +93,15 @@ enum direction {
 int currentIntersection = 0;
 direction intersectionTurns[14] = { LEFT, LEFT, LEFT, FORWARD, LEFT, /*no line - keep going forward,*/ RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
 
-//TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
-// Option 1:
-// Following line -> at least one turn sensor goes high -> note the sensors that went high, but continue forward until they go low again -> note if forward is still high -> we now know what the intersection looks like, choose correct from possible options
-// we should only have slightly overshot the intersection so going left, right or forward is still possible.
+/*TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
+ Option 1:
+ Following line -> at least one turn sensor goes high -> note the sensors that went high, but continue forward until they go low again -> note if forward is still high -> we now know what the intersection looks like, choose correct from possible options
+ we should only have slightly overshot the intersection so going left, right or forward is still possible.
 
-// Option 2:
-// Treat all turns, including simple left and right turns as intersections, and hard code the right choice for each one.
-// Result: Detect right or left turn -> count it as an intersection so look for correct turn in the hard coded path.
-// Means hard coding every single turn, but eliminates problem of -> T -> crossings
+ Option 2:
+ Treat all turns, including simple left and right turns as intersections, and hard code the right choice for each one.
+ Result: Detect right or left turn -> count it as an intersection so look for correct turn in the hard coded path.
+ Means hard coding every single turn, but eliminates problem of -> T -> crossings*/
 
 void setup() {
   // put your setup code here, to run once:
@@ -262,9 +262,9 @@ void loop() {
 void followLine() {
   int error = calulateWeightedError();
   int correction = calculatePID(error);
-
-  int leftMotor = baseSpeed + correction;
-  int rightMotor = baseSpeed - correction;
+  //Test for max speed
+  int leftMotor = constrain(baseSpeed + correction, 0, 255);
+  int rightMotor = constrain(baseSpeed - correction, 0, 255);
 
   driveMotors(leftMotor, rightMotor);
 }
@@ -277,7 +277,7 @@ long microsecondsToCentimeters(long microseconds) {
 
 void pickUpAndStore() {
   analogWrite(MOTORLEFT1, 0);   // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);   // Speed (0–255)
+  analogWrite(MOTORLEFT2, 0);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
   verticalServo.attach(VERTICALPIN);
@@ -315,7 +315,7 @@ int readDistance() {
 
 void driveMotors(int left, int right) {
   analogWrite(MOTORLEFT1, left);  // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);     // Speed (0–255)
+  analogWrite(MOTORLEFT2, 0);     // Speed (0-255)
 
   // RIGHT motor
   analogWrite(MOTORRIGHT1, right);  // HIGH = forward, change if reversed
@@ -369,6 +369,7 @@ int calculatePID(int error) {
   lastError = e;
 
   float correction = Kp * e /*+ Ki * integral*/ + Kd * derivative;
+  //Maybe could remove if we constrain it before the motors
   correction = constrain(correction, -MAX_CORRECTION, MAX_CORRECTION);
   //Serial.print("Correction: ");
   //Serial.println(correction);
@@ -390,12 +391,12 @@ void turnRight() {
   analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 255);
   analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);    // Speed (0–255)
+  analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
 
   delay(200);
-  while (analogRead(sensorPins[6]) < ON_LINE);
+  while (analogRead(sensorPins[5]) < ON_LINE);
   analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);   // Speed (0–255)
+  analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 255);
   forcePID();
@@ -407,14 +408,14 @@ void turnLeft() {
   delay(150);
   Serial.println("I am turning left!");
   analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);     // Speed (0–255)
+  analogWrite(MOTORLEFT2, 255);     // Speed (0-255)
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
   
   delay(200);
   while (analogRead(sensorPins[0]) < ON_LINE);
   analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);   // Speed (0–255)
+  analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 255);
 
@@ -446,7 +447,7 @@ void noLineLogic() {
     Serial.println("I am turning left at intersection 5!");
 
   analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);     // Speed (0–255)
+  analogWrite(MOTORLEFT2, 255);     // Speed (0-255)
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
 
@@ -461,7 +462,7 @@ void noLineLogic() {
 void uTurn() {
   Serial.println("I am doing a u-turn!!");
   analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);   // Speed (0–255)
+  analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
 
@@ -469,7 +470,7 @@ void uTurn() {
   while (analogRead(sensorPins[0]) < ON_LINE);
 
   analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);   // Speed (0–255)
+  analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 255);
   delay(100);
