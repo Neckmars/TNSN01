@@ -44,6 +44,7 @@
 #define DEBUG_LINE_SENSORS 0
 #define DEBUG_TURN_SENSORS 0
 #define DEBUG_DISTANCE_SENSORS 0
+#define DEBUG_TURNING 0
 
 Servo gripperServo;
 Servo verticalServo;
@@ -117,6 +118,7 @@ void setup() {
 
   Serial.begin(9600);
 
+  //Test if we need to attach and detach
   gripperServo.attach(GRIPPERPIN);
   verticalServo.attach(VERTICALPIN);
   gripperServo.write(GRIPPER_OPEN_POS);
@@ -147,14 +149,13 @@ void setup() {
 
   pinMode(STARTBUTTON, INPUT_PULLUP);
 
-  while (digitalRead(STARTBUTTON) == HIGH)
-    ;
+  while (digitalRead(STARTBUTTON) == HIGH);
 }
 
 void loop() {
   //TODO: Might be good to normalize sensor readings, would require a calibration step where the robot sweeps over the line to see highest and lowest reading for each sensor.
-  ////Serial.println(encoderLeft);
-  ////Serial.println(encoderRight);
+  //Serial.println(encoderLeft);
+  //Serial.println(encoderRight);
   long sum = 0;
   if(DEBUG_DISTANCE_SENSORS && millis() - lastTime > 20){
     distance = readDistance();
@@ -234,15 +235,21 @@ void loop() {
 
       switch (chosenTurn) {
         case LEFT:
-          Serial.println("Switch case turning left");
+          if(DEBUG_TURNING){
+            Serial.println("Switch case turning left");
+          }
           turnLeft();
           break;
         case RIGHT:
-          Serial.println("Switch case turning right");
+          if(DEBUG_TURNING){
+            Serial.println("Switch case turning right");
+          }
           turnRight();
           break;
         case FORWARD:
-          Serial.println("Switch case FORWARD");
+          if(DEBUG_TURNING){ 
+            Serial.println("Switch case FORWARD");
+          }
           followLine();
           break;
       }
@@ -280,6 +287,7 @@ void pickUpAndStore() {
   analogWrite(MOTORLEFT2, 0);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
+  //Test if we need to attach and detach
   verticalServo.attach(VERTICALPIN);
   gripperServo.attach(GRIPPERPIN);
   //Serial.println("Vertical down position!");
@@ -298,7 +306,7 @@ void pickUpAndStore() {
   verticalServo.write(VERTICAL_DRIVE_POS);
   delay(200);
   gripperServo.write(GRIPPER_OPEN_POS);
-
+  //Test if we need to attach and detach
   verticalServo.detach();
   gripperServo.detach();
 }
@@ -361,9 +369,6 @@ int calulateWeightedError() {
 int calculatePID(int error) {
 
   float e = (float)error;
-  //Serial.print("Error: ");
-  //Serial.println(e);
-
   // integral += e;
   float derivative = e - lastError;
   lastError = e;
@@ -371,8 +376,7 @@ int calculatePID(int error) {
   float correction = Kp * e /*+ Ki * integral*/ + Kd * derivative;
   //Maybe could remove if we constrain it before the motors
   correction = constrain(correction, -MAX_CORRECTION, MAX_CORRECTION);
-  //Serial.print("Correction: ");
-  //Serial.println(correction);
+
   if (DEBUG_PID) {
     Serial.print("P-term: ");
     Serial.println(String(e * Kp));
@@ -395,6 +399,7 @@ void turnRight() {
 
   delay(200);
   while (analogRead(sensorPins[5]) < ON_LINE);
+  //Test if needed
   analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
@@ -414,6 +419,8 @@ void turnLeft() {
   
   delay(200);
   while (analogRead(sensorPins[0]) < ON_LINE);
+  //Test if needed
+
   analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
