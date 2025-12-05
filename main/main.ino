@@ -38,13 +38,15 @@
 
 #define STARTBUTTON 12
 
-#define ON_LINE 850  //Value for being on the line
+#define ON_LINE 800  //Value for being on the line
 
 #define DEBUG_PID 0
 #define DEBUG_LINE_SENSORS 0
 #define DEBUG_TURN_SENSORS 0
 #define DEBUG_DISTANCE_SENSORS 0
-#define DEBUG_TURNING 0
+#define DEBUG_TURNING 1
+#define DEBUG_MOTOR_SPEED 0
+#define DEBUG_FLAGS 1
 
 Servo gripperServo;
 Servo verticalServo;
@@ -69,19 +71,24 @@ int lastError;
 int integral;
 
 float Kp = 0.25;
-float Ki = 0.0002;
-float Kd = 0;
+float Ki = 0.00024;
+float Kd = 8;
 
+float amountOfPIDS = 0;
 
 const int MAX_CORRECTION = 55;
 
-const int baseSpeed = 255;
+const int baseSpeed = 200;
 
 volatile long encoderRight = 0;
 volatile long encoderLeft = 0;
 
 long lastTime = millis();
+long startTime = millis();
+long lastPID = millis();
+long dt = 0;
 
+bool offLine = true;
 long distance = 0;
 
 enum direction {
@@ -92,7 +99,7 @@ enum direction {
 };
 
 int currentIntersection = 0;
-direction intersectionTurns[14] = { LEFT, LEFT, LEFT, FORWARD, LEFT, /*no line - keep going forward,*/ RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
+direction intersectionTurns[15] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
 
 /*TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
  Option 1:
@@ -118,7 +125,6 @@ void setup() {
 
   Serial.begin(9600);
 
-  //Test if we need to attach and detach
   gripperServo.attach(GRIPPERPIN);
   verticalServo.attach(VERTICALPIN);
   gripperServo.write(GRIPPER_OPEN_POS);
@@ -149,7 +155,9 @@ void setup() {
 
   pinMode(STARTBUTTON, INPUT_PULLUP);
 
-  while (digitalRead(STARTBUTTON) == HIGH);
+  while (digitalRead(STARTBUTTON) == HIGH)
+    ;
+  startTime, dt = millis();
 }
 
 void loop() {
@@ -157,18 +165,25 @@ void loop() {
   //Serial.println(encoderLeft);
   //Serial.println(encoderRight);
   long sum = 0;
-  if(DEBUG_DISTANCE_SENSORS && millis() - lastTime > 20){
+  offLine = true;
+
+  if (millis() - lastTime > 20) {
     distance = readDistance();
-    Serial.println("Distance: " + String(distance));
     lastTime = millis();
+    if (DEBUG_DISTANCE_SENSORS) {
+      Serial.println("Distance: " + String(distance));
+    }
   }
+  /*if(millis() - startTime > 2000){
+    Serial.print(millis() - startTime);
+    Serial.println("Amount of PIDs: " + String(amountOfPIDS));
+    //startTime = millis();
+  }*/
   for (int i = 1; i < 5; i++) {
     int raw = analogRead(sensorPins[i]);
-    sum += raw;
-  }
-  if (sum < 800) {
-    //Serial.println("sum: " + String(sum));
-    noLineLogic();
+    if (raw > 650) {
+      offLine = false;
+    }
   }
 
   int leftTurnSensor = analogRead(sensorPins[0]);
@@ -188,9 +203,15 @@ void loop() {
   }
 
   if (leftTurnSensor > ON_LINE) {
+    if (DEBUG_FLAGS && hasLeftTurn == 0) {
+      Serial.println("I detected a left turn, flagging");
+    }
     hasLeftTurn = 1;
   }
   if (rightTurnSensor > ON_LINE) {
+    if (DEBUG_FLAGS && hasRightTurn == 0) {
+      Serial.println("I detected a right turn, flagging");
+    }
     hasRightTurn = 1;
   }
 
@@ -207,8 +228,9 @@ void loop() {
     leftTurnSensor = analogRead(sensorPins[0]);
     rightTurnSensor = analogRead(sensorPins[5]);
     if (leftTurnSensor <= ON_LINE && rightTurnSensor <= ON_LINE) {
+      delay(150);
       // We overshot the intersection, check for forward option
-      if (analogRead(sensorPins[2]) > ON_LINE || analogRead(sensorPins[3]) > ON_LINE) {
+      if (analogRead(sensorPins[2]) > 780 || analogRead(sensorPins[3]) > 780) {
         hasForwardTurn = 1;
       } else {
         hasForwardTurn = 0;
@@ -235,19 +257,19 @@ void loop() {
 
       switch (chosenTurn) {
         case LEFT:
-          if(DEBUG_TURNING){
+          if (DEBUG_TURNING) {
             Serial.println("Switch case turning left");
           }
           turnLeft();
           break;
         case RIGHT:
-          if(DEBUG_TURNING){
+          if (DEBUG_TURNING) {
             Serial.println("Switch case turning right");
           }
           turnRight();
           break;
         case FORWARD:
-          if(DEBUG_TURNING){ 
+          if (DEBUG_TURNING) {
             Serial.println("Switch case FORWARD");
           }
           followLine();
@@ -260,6 +282,10 @@ void loop() {
     }
 
     return;  // Dont do normal PID until we have solved the intersection.
+  }
+  if (offLine) {
+    //Serial.println("sum: " + String(sum));
+    noLineLogic();
   }
 
   // Follow line PID
@@ -287,9 +313,9 @@ void pickUpAndStore() {
   analogWrite(MOTORLEFT2, 0);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
-  //Test if we need to attach and detach
-  verticalServo.attach(VERTICALPIN);
+
   gripperServo.attach(GRIPPERPIN);
+  verticalServo.attach(VERTICALPIN);
   //Serial.println("Vertical down position!");
   delay(100);
   verticalServo.write(VERTICAL_DOWN_POS);
@@ -306,9 +332,9 @@ void pickUpAndStore() {
   verticalServo.write(VERTICAL_DRIVE_POS);
   delay(200);
   gripperServo.write(GRIPPER_OPEN_POS);
-  //Test if we need to attach and detach
-  verticalServo.detach();
+  delay(200);
   gripperServo.detach();
+  verticalServo.detach();
 }
 
 int readDistance() {
@@ -329,10 +355,12 @@ void driveMotors(int left, int right) {
   analogWrite(MOTORRIGHT1, right);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
 
-  //Serial.print("Left motor: ");
-  //Serial.println(left);
-  //Serial.print("Right motor: ");
-  //Serial.println(right);
+  if (DEBUG_MOTOR_SPEED) {
+    Serial.print("Left motor: ");
+    Serial.println(left);
+    Serial.print("Right motor: ");
+    Serial.println(right);
+  }
 }
 
 int calulateWeightedError() {
@@ -341,16 +369,10 @@ int calulateWeightedError() {
 
   for (int i = 0; i < 6; i++) {
     int raw = analogRead(sensorPins[i]);
-    if (DEBUG_LINE_SENSORS) {
-      Serial.print("Raw pin ");
-      Serial.print(i);
-      Serial.print(": ");
-      Serial.println(raw);
-    }
 
     // raw = constrain(raw, sensorMin[i], sensorMax[i]);
     // int normalized = map(raw, sensorMin[i], sensorMax[i], 0, 1000);
-  
+
     int weight = -weightArray[i];  // calculate weight for the pin (-3500 -2500 -1500 -500 +500 +1500 +2500 +3500)
     weightedSum += (long)raw * weight;
     // weightedSum += normalized * weight; // Using normalized readings
@@ -367,19 +389,24 @@ int calulateWeightedError() {
 }
 
 int calculatePID(int error) {
-
+  amountOfPIDS++;
   float e = (float)error;
-  // integral += e;
-  float derivative = e - lastError;
+  //integral += e;
+  dt = millis() - lastPID;
+  float derivative = (e - lastError) / dt;
+  lastPID = millis();
   lastError = e;
-
   float correction = Kp * e /*+ Ki * integral*/ + Kd * derivative;
   //Maybe could remove if we constrain it before the motors
-  correction = constrain(correction, -MAX_CORRECTION, MAX_CORRECTION);
+  //correction = constrain(correction, -MAX_CORRECTION, MAX_CORRECTION);
 
   if (DEBUG_PID) {
+    Serial.println("dt: " + String(dt));
+    Serial.println("Error: " + String(e));
     Serial.print("P-term: ");
-    Serial.println(String(e * Kp));
+    Serial.println(e * Kp);
+    /*Serial.print("I-term: ");
+    Serial.println(integral * Ki);*/
     Serial.print("D-term: ");
     Serial.println(Kd * derivative);
     Serial.println("Correction: " + String(correction));
@@ -390,55 +417,81 @@ int calculatePID(int error) {
 void turnRight() {
   // encoderRight = 0;
   // encoderLeft = 0;
-  delay(150);
+  if (DEBUG_LINE_SENSORS) {
+    for (int i = 0; i < 6; i++) {
+      int raw = analogRead(sensorPins[i]);
+      if (DEBUG_LINE_SENSORS) {
+        Serial.print("Raw pin ");
+        Serial.print(i);
+        Serial.print(": ");
+        Serial.println(raw);
+      }
+    }
+  }
   Serial.println("I am turning right!");
   analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 255);
-  analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 150);
+  analogWrite(MOTORLEFT1, 200);  // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
 
   delay(200);
-  while (analogRead(sensorPins[5]) < ON_LINE);
-  //Test if needed
-  analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
+  while (analogRead(sensorPins[5]) < ON_LINE)
+    ;
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 255);
+  analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);  // Speed (0-255)
+  delay(50);
+
+
   forcePID();
 }
 
 void turnLeft() {
   //encoderRight = 0;
   //encoderLeft = 0;
-  delay(150);
+  if (DEBUG_LINE_SENSORS) {
+    for (int i = 0; i < 6; i++) {
+      int raw = analogRead(sensorPins[i]);
+      if (DEBUG_LINE_SENSORS) {
+        Serial.print("Raw pin ");
+        Serial.print(i);
+        Serial.print(": ");
+        Serial.println(raw);
+      }
+    }
+  }
   Serial.println("I am turning left!");
   analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);     // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 150);   // Speed (0-255)
+  analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
-  
-  delay(200);
-  while (analogRead(sensorPins[0]) < ON_LINE);
-  //Test if needed
 
-  analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
+  delay(200);
+  while (analogRead(sensorPins[0]) < ON_LINE)
+    ;
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 255);
-
+  analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);  // Speed (0-255)
+  delay(50);
   forcePID();
 }
 
-void forcePID(){
-  for (int i = 0; i < 400; i++) {
+void forcePID() {
+  for (int i = 0; i < 200; i++) {
     followLine();
   }
 }
 
 void noLineLogic() {
   bool foundLine = false;
-  driveMotors(170,160);
-  while (distance > 15 && !foundLine) {
+  analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
+  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 255);
+  driveMotors(170, 160);
+  while (readDistance() > 13 && !foundLine) {
     for (int i = 0; i < 6; i++) {
       if (analogRead(sensorPins[i]) > ON_LINE) {
         foundLine = true;
@@ -450,31 +503,43 @@ void noLineLogic() {
   if (foundLine) {
     forcePID();
     return;
-  }else if(currentIntersection == 5){
+  } else if (currentIntersection == 5) {
     Serial.println("I am turning left at intersection 5!");
 
-  analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);     // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 0);
+    analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 0);
 
-  delay(400);
-  
-  } 
-  else {
+    delay(400);
+    currentIntersection++;
+
+  } else {
     uTurn();
   }
 }
 
 void uTurn() {
+  if (DEBUG_LINE_SENSORS) {
+    for (int i = 0; i < 6; i++) {
+      int raw = analogRead(sensorPins[i]);
+      if (DEBUG_LINE_SENSORS) {
+        Serial.print("Raw pin ");
+        Serial.print(i);
+        Serial.print(": ");
+        Serial.println(raw);
+      }
+    }
+  }
   Serial.println("I am doing a u-turn!!");
   analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
+  analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
 
   delay(200);
-  while (analogRead(sensorPins[0]) < ON_LINE);
+  while (analogRead(sensorPins[0]) < ON_LINE)
+    ;
 
   analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
