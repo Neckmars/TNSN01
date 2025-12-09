@@ -27,14 +27,15 @@
 #define GRIPPERPIN 9
 #define VERTICALPIN 10
 
-#define GRIPPER_CLOSED_POS 10
-#define GRIPPER_OPEN_POS 60
+#define GRIPPER_CLOSED_POS 20
+#define GRIPPER_OPEN_POS 90
 #define GRIPPER_DROPOFF_POS 30
 #define VERTICAL_DOWN_POS 175
+#define VERTICAL_PRE_OPEN_POS 105
 #define VERTICAL_UP_POS 65
-#define VERTICAL_DRIVE_POS 85
+#define VERTICAL_DRIVE_POS 95
 #define GRIPPER_UP_POS 30
-#define DISTANCE_FROM_GRIPPER 9
+#define DISTANCE_FROM_GRIPPER 10
 
 #define STARTBUTTON 12
 
@@ -127,7 +128,7 @@ void setup() {
 
   gripperServo.attach(GRIPPERPIN);
   verticalServo.attach(VERTICALPIN);
-  gripperServo.write(GRIPPER_OPEN_POS);
+  gripperServo.write(GRIPPER_DROPOFF_POS);
   verticalServo.write(VERTICAL_DRIVE_POS);
   delay(200);
   gripperServo.detach();
@@ -154,7 +155,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_B), ENCODER_LEFT_B_ISR, CHANGE);
 
   pinMode(STARTBUTTON, INPUT_PULLUP);
-
+  
   while (digitalRead(STARTBUTTON) == HIGH)
     ;
   startTime, dt = millis();
@@ -167,13 +168,6 @@ void loop() {
   long sum = 0;
   offLine = true;
 
-  if (millis() - lastTime > 20) {
-    distance = readDistance();
-    lastTime = millis();
-    if (DEBUG_DISTANCE_SENSORS) {
-      Serial.println("Distance: " + String(distance));
-    }
-  }
   /*if(millis() - startTime > 2000){
     Serial.print(millis() - startTime);
     Serial.println("Amount of PIDs: " + String(amountOfPIDS));
@@ -189,13 +183,6 @@ void loop() {
   int leftTurnSensor = analogRead(sensorPins[0]);
   int rightTurnSensor = analogRead(sensorPins[5]);
   // Read distance
-
-  if (distance <= DISTANCE_FROM_GRIPPER) {  // Might be inacurate when close range in practice so might have to do it "blind", i.e move forward x amount, then do closing
-    Serial.println("Object too close, grabbing it!");
-    pickUpAndStore();
-  }
-
-
 
   if (DEBUG_TURN_SENSORS) {
     Serial.println("Left turn sensor: " + String(leftTurnSensor));
@@ -230,7 +217,7 @@ void loop() {
     if (leftTurnSensor <= ON_LINE && rightTurnSensor <= ON_LINE) {
       delay(150);
       // We overshot the intersection, check for forward option
-      if (analogRead(sensorPins[2]) > 780 || analogRead(sensorPins[3]) > 780) {
+      if (analogRead(sensorPins[2]) > 750 || analogRead(sensorPins[3]) > 750) {
         hasForwardTurn = 1;
       } else {
         hasForwardTurn = 0;
@@ -293,8 +280,22 @@ void loop() {
 }
 
 void followLine() {
+  if (millis() - lastTime > 20) {
+    distance = readDistance();
+    lastTime = millis();
+    if (DEBUG_DISTANCE_SENSORS) {
+      Serial.println("Distance: " + String(distance));
+    }
+  }
+
+  if (distance <= DISTANCE_FROM_GRIPPER) {  // Might be inacurate when close range in practice so might have to do it "blind", i.e move forward x amount, then do closing
+    Serial.println("Object too close, grabbing it!");
+    pickUpAndStore();
+  }
+
   int error = calulateWeightedError();
   int correction = calculatePID(error);
+
   //Test for max speed
   int leftMotor = constrain(baseSpeed + correction, 0, 255);
   int rightMotor = constrain(baseSpeed - correction, 0, 255);
@@ -317,7 +318,10 @@ void pickUpAndStore() {
   gripperServo.attach(GRIPPERPIN);
   verticalServo.attach(VERTICALPIN);
   //Serial.println("Vertical down position!");
-  delay(100);
+  verticalServo.write(VERTICAL_PRE_OPEN_POS);
+  delay(400);
+  gripperServo.write(GRIPPER_OPEN_POS);
+  delay(400);
   verticalServo.write(VERTICAL_DOWN_POS);
   delay(500);
   gripperServo.write(GRIPPER_CLOSED_POS);
@@ -330,8 +334,6 @@ void pickUpAndStore() {
   delay(200);
   //Serial.println("OPENING GRIPPERS UP!");
   verticalServo.write(VERTICAL_DRIVE_POS);
-  delay(200);
-  gripperServo.write(GRIPPER_OPEN_POS);
   delay(200);
   gripperServo.detach();
   verticalServo.detach();
@@ -443,8 +445,7 @@ void turnRight() {
   analogWrite(MOTORLEFT2, 255);  // Speed (0-255)
   delay(50);
 
-
-  forcePID();
+  forcePID(200);
 }
 
 void turnLeft() {
@@ -475,23 +476,31 @@ void turnLeft() {
   analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 255);  // Speed (0-255)
   delay(50);
-  forcePID();
+  forcePID(200);
 }
 
-void forcePID() {
-  for (int i = 0; i < 200; i++) {
+void forcePID(int amountOfCycles) {
+  for (int i = 0; i < amountOfCycles; i++) {
     followLine();
   }
 }
 
 void noLineLogic() {
+  Serial.println("Start of noLineLogic()");
+  float timeSinceStart = millis();
   bool foundLine = false;
-  analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 255);
   driveMotors(170, 160);
   while (readDistance() > 13 && !foundLine) {
+    if (millis() - timeSinceStart > 1500) {
+      if (lineFinder()) {
+        Serial.println("Found the line again!");
+        foundLine = true;
+        break;
+      } else {
+        driveMotors(170, 160);
+        delay(100);
+      }
+    }
     for (int i = 0; i < 6; i++) {
       if (analogRead(sensorPins[i]) > ON_LINE) {
         foundLine = true;
@@ -501,7 +510,7 @@ void noLineLogic() {
     delay(10);
   }
   if (foundLine) {
-    forcePID();
+    Serial.println("Time since start of noLineLogic(): " + String(millis() - timeSinceStart));
     return;
   } else if (currentIntersection == 5) {
     Serial.println("I am turning left at intersection 5!");
@@ -512,8 +521,11 @@ void noLineLogic() {
     analogWrite(MOTORRIGHT2, 0);
 
     delay(400);
+    forcePID(400);
     currentIntersection++;
 
+  } else if (currentIntersection >= 12) {
+    finalDance();
   } else {
     uTurn();
   }
@@ -546,9 +558,92 @@ void uTurn() {
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 255);
   delay(100);
-  forcePID();
+  forcePID(200);
 }
 
+bool lineFinder() {
+  Serial.println("In lineFinder()");
+  //TURNING LEFT FIRST
+  analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
+  analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 0);
+  float timeDelay = millis();
+  while (millis() - timeDelay < 300) {
+    for (int i = 0; i < 6; i++) {
+      if (analogRead(sensorPins[i]) > ON_LINE) {
+        return true;
+      }
+    }
+  }
+  //TURNING RIGHT AFTER
+  analogWrite(MOTORLEFT1, 200);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
+  analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 200);
+  timeDelay = millis();
+  while (millis() - timeDelay < 600) {
+    for (int i = 0; i < 6; i++) {
+      if (analogRead(sensorPins[i]) > ON_LINE) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+void finalDance() {
+  Serial.println("I am turning left!");
+  analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 150);   // Speed (0-255)
+  analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 0);
+  delay(200);
+  while (analogRead(sensorPins[0]) < ON_LINE)
+    ;
+  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 255);
+  analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);  // Speed (0-255)
+  delay(50);
+
+  Serial.println("I am turning right!");
+  analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 150);
+  analogWrite(MOTORLEFT1, 200);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
+
+  delay(200);
+  while (analogRead(sensorPins[5]) < ON_LINE)
+    ;
+  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 255);
+  analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 255);  // Speed (0-255)
+  delay(50);
+
+  driveMotors(0, 0);
+  gripperServo.attach(GRIPPERPIN);
+  verticalServo.attach(VERTICALPIN);
+  //Serial.println("Vertical down position!");
+  verticalServo.write(VERTICAL_PRE_OPEN_POS);
+  delay(400);
+  gripperServo.write(GRIPPER_OPEN_POS);
+  delay(200);
+  gripperServo.write(GRIPPER_CLOSED_POS);
+  delay(200);
+  gripperServo.write(GRIPPER_OPEN_POS);
+  delay(200);
+  gripperServo.write(GRIPPER_CLOSED_POS);
+  delay(200);
+  verticalServo.write(VERTICAL_DOWN_POS);
+  delay(500);
+  verticalServo.write(VERTICAL_UP_POS);
+  delay(500);
+  gripperServo.detach();
+  verticalServo.detach();
+  delay(10000);
+}
 void ENCODER_RIGHT_A_ISR() {
   int stateA = digitalRead(ENCODER_RIGHT_A);
   int stateB = digitalRead(ENCODER_RIGHT_B);
