@@ -1,5 +1,6 @@
 #include <Servo.h>
 #include <EEPROM.h>
+#include <Vector.h>
 
 #define LT_L3_PIN A5
 #define LT_L2_PIN A4
@@ -53,6 +54,12 @@
 #define DEBUG_MOTOR_SPEED 0
 #define DEBUG_FLAGS 1
 #define DO_CALIBRATION 0
+
+// Orientation definitions
+#define NORTH 0
+#define WEST 1
+#define SOUTH 2
+#define EAST 3
 
 Servo gripperServo;
 Servo verticalServo;
@@ -114,6 +121,77 @@ enum direction {
   BACKWARD
 };
 
+// A star node class and variables
+int currentNewIntersection = -1;
+int cylindersCollected = 1;
+int currentOrientation = WEST;
+
+class Node {
+public:
+    int x = -1;
+    int y = -1;
+    int h = 0;
+    int g = 0;
+
+    // Order: North, South, West, East
+    int northLimit;
+    int southLimit;
+    int westLimit;
+    int eastLimit;
+
+
+    Node *parent = nullptr;
+
+    Node() {};
+
+    void SetParams(int x, int y, int northLimit, int southLimit, int westLimit, int eastLimit) {
+        this->x = x;
+        this->y = y;
+
+        this->northLimit = northLimit;
+        this->southLimit = southLimit;
+        this->westLimit = westLimit;
+        this->eastLimit = eastLimit;
+    }
+
+    void resetParams(){
+        this->h = 0;
+        this->g = 0;
+        this->parent = nullptr;
+    }
+
+    int f() {
+        return g + h;
+    }
+};
+
+// Define Node positions
+Node MapNodes[7][7];
+Node* intersectionNodes[14]= {&MapNodes[1][2], &MapNodes[1][1],
+                                &MapNodes[1][1], &MapNodes[6][3],
+                                &MapNodes[6][3], &MapNodes[4][4],
+                                &MapNodes[3][4], &MapNodes[1][1],
+                                &MapNodes[1][2], &MapNodes[2][3],
+                                &MapNodes[2][4], &MapNodes[2][4],
+                                &MapNodes[2][3], &MapNodes[1][2]};
+Node* finalCylinderNode = &MapNodes[2][6];
+
+// Define help structures 
+struct importantVectors {
+        Vector<Node*> v1;
+        Vector<direction> v2;
+}; 
+struct dobleInt {
+    int value1;
+    direction value2;
+};
+/*struct ordersAndIndex {
+    Vector<int> order;
+    int index;
+};*/
+
+
+// Intersection turns
 int currentIntersection = 0;
 direction intersectionTurns[15] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
 
@@ -174,6 +252,9 @@ void setup() {
   */
   pinMode(STARTBUTTON, INPUT_PULLUP);
 
+  // Create virtual map for the robot
+  createMap();
+
   while (digitalRead(STARTBUTTON) == HIGH)
     ;
   if (DO_CALIBRATION) {
@@ -194,7 +275,7 @@ void setup() {
       Serial.println(" OffLine values pin " + String(i) + ": " + String(sensorOffLine[i]));
     }
   }
-
+  
   startTime, dt = millis();
 }
 
@@ -204,6 +285,14 @@ void loop() {
   //Serial.println(encoderRight);
   long sum = 0;
   offLine = true;
+
+  // Only enters when the number of cyllinders collected are 2 and currentNewIntersection hasn't been used yet
+  if (cylindersCollected == 2 && currentNewIntersection == -1) {
+    Serial.println("Calculating AStar");
+    auto [newMaxNodes, specialNodePos] = Astar_robot(currentIntersection, 0, currentOrientation);
+    currentNewIntersection = 0;
+    currentIntersection = 0;
+  }
 
   /*if(millis() - startTime > 2000){
     Serial.print(millis() - startTime);
@@ -298,6 +387,13 @@ void loop() {
           }
           followLine();
           break;
+        // Only a Astar case
+        case BACKWARD:
+          if (DEBUG_TURNING) {
+            Serial.println("Switch case BACKWARD");
+          }
+          uTurn();
+          break;
       }
       // We are done with intersection, reset intersection checkers
       hasLeftTurn = 0;
@@ -327,6 +423,7 @@ void followLine() {
 
   if (distance <= DISTANCE_FROM_GRIPPER) {  // Might be inacurate when close range in practice so might have to do it "blind", i.e move forward x amount, then do closing
     Serial.println("Object too close, grabbing it!");
+    cylindersCollected++;
     pickUpAndStore();
   }
 
@@ -456,6 +553,7 @@ int calculatePID(int error) {
 void turnRight() {
   // encoderRight = 0;
   // encoderLeft = 0;
+  currentOrientation = (currentOrientation-1)%4;
   if (DEBUG_LINE_SENSORS) {
     for (int i = 0; i < 6; i++) {
       int raw = analogRead(sensorPins[i]);
@@ -488,6 +586,7 @@ void turnRight() {
 void turnLeft() {
   //encoderRight = 0;
   //encoderLeft = 0;
+  currentOrientation = (currentOrientation+1)%4;
   if (DEBUG_LINE_SENSORS) {
     for (int i = 0; i < 6; i++) {
       int raw = analogRead(sensorPins[i]);
@@ -573,6 +672,7 @@ void noLineLogic() {
 }
 
 void uTurn() {
+  currentOrientation = (currentOrientation+2)%4;
   if (DEBUG_LINE_SENSORS) {
     for (int i = 0; i < 6; i++) {
       int raw = analogRead(sensorPins[i]);
@@ -783,6 +883,340 @@ void calibrateSensors() {
   EEPROM.put(0, calib);
 }
 
+// A star functions
+void resetMap() {
+    for(int j = 0; j < 7; j++){
+        for (int i = 0; i < 7; i++) {
+            MapNodes[j][i].resetParams();
+        }
+    }
+}
+
+void createMap() {
+    // Order: North, South, West, East
+    // Generate first line
+    MapNodes[0][0].SetParams(0, 0, 0, 0, 0, 1);
+    MapNodes[0][1].SetParams(1, 0, 1, 0, 1, 0);
+    MapNodes[0][2].SetParams(2, 0, 1, 0, 0, 1);
+    MapNodes[0][3].SetParams(3, 0, 0, 0, 1, 0);
+    MapNodes[0][4].SetParams(4, 0, 1, 0, 0, 1);
+    MapNodes[0][5].SetParams(5, 0, 0, 0, 1, 1);
+    MapNodes[0][6].SetParams(6, 0, 1, 0, 1, 0);
+
+    // Generate second line
+    MapNodes[1][0].SetParams(0, 1, 1, 0, 0, 1);
+    MapNodes[1][1].SetParams(1, 1, 1, 1, 1, 1);
+    MapNodes[1][2].SetParams(2, 1, 0, 1, 1, 1);
+    MapNodes[1][3].SetParams(3, 1, 1, 0, 1, 0);
+    MapNodes[1][4].SetParams(4, 1, 0, 1, 0, 1);
+    MapNodes[1][5].SetParams(5, 1, 1, 0, 1, 0);
+    MapNodes[1][6].SetParams(6, 1, 1, 1, 0, 0);
+
+    // Generate third line
+    MapNodes[2][0].SetParams(0, 2, 1, 1, 0, 0);
+    MapNodes[2][1].SetParams(1, 2, 1, 1, 0, 0);
+    MapNodes[2][2].SetParams(2, 2, 0, 0, 0, 1);
+    MapNodes[2][3].SetParams(3, 2, 0, 1, 1, 1);
+    MapNodes[2][4].SetParams(4, 2, 1, 0, 1, 1);
+    MapNodes[2][5].SetParams(5, 2, 0, 1, 1, 0);
+    MapNodes[2][6].SetParams(6, 2, 1, 1, 0, 0);
+    
+    // Generate fourth line
+    MapNodes[3][0].SetParams(0, 3, 1, 1, 0, 0);
+    MapNodes[3][1].SetParams(1, 3, 1, 1, 0, 0);
+    MapNodes[3][2].SetParams(2, 3, 1, 0, 0, 1);
+    MapNodes[3][3].SetParams(3, 3, 0, 0, 1, 1);
+    MapNodes[3][4].SetParams(4, 3, 1, 1, 1, 0);
+    MapNodes[3][5].SetParams(5, 3, 1, 0, 0, 1);
+    MapNodes[3][6].SetParams(6, 3, 0, 1, 1, 0);
+
+    // Generate fifth line
+    MapNodes[4][0].SetParams(0, 4, 1, 1, 0, 0);
+    MapNodes[4][1].SetParams(1, 4, 0, 1, 0, 1);
+    MapNodes[4][2].SetParams(2, 4, 0, 1, 1, 0);
+    MapNodes[4][3].SetParams(3, 4, 1, 0, 0, 1);
+    MapNodes[4][4].SetParams(4, 4, 1, 1, 1, 0);
+    MapNodes[4][5].SetParams(5, 4, 0, 1, 0, 1);
+    MapNodes[4][6].SetParams(6, 4, 0, 0, 1, 0);
+
+    // Generate sixth line
+    MapNodes[5][0].SetParams(0, 5, 1, 1, 0, 0);
+    MapNodes[5][1].SetParams(1, 5, 1, 0, 0, 1);
+    MapNodes[5][2].SetParams(2, 5, 1, 0, 1, 0);
+    MapNodes[5][3].SetParams(3, 5, 1, 1, 0, 0);
+    MapNodes[5][4].SetParams(4, 5, 0, 1, 0, 1);
+    MapNodes[5][5].SetParams(5, 5, 0, 0, 1, 1);
+    MapNodes[5][6].SetParams(6, 5, 1, 0, 1, 0);
+
+    // Generate seventh line
+    MapNodes[6][0].SetParams(0, 6, 0, 1, 0, 1);
+    MapNodes[6][1].SetParams(1, 6, 0, 1, 1, 0);
+    MapNodes[6][2].SetParams(2, 6, 0, 1, 0, 1);
+    MapNodes[6][3].SetParams(3, 6, 0, 1, 1, 1);
+    MapNodes[6][4].SetParams(4, 6, 0, 0, 1, 0);
+    MapNodes[6][5].SetParams(5, 6, 0, 0, 0, 1);
+    MapNodes[6][6].SetParams(6, 6, 0, 1, 1, 0);
+
+    return;
+}
+
+int ManhattanDistance(int x1, int y1, int x2, int y2) {
+    return (abs(x1 - x2) + abs(y1 - y2));
+}
+
+Vector<Node*> GetNeighbors(Node* thisNode) {
+    Vector<Node*> vectorOut;
+    Serial.println("");
+    if (thisNode->northLimit == 1) vectorOut.push_back(&MapNodes[thisNode->y+1][thisNode->x]);
+    if (thisNode->southLimit == 1) vectorOut.push_back(&MapNodes[thisNode->y-1][thisNode->x]);
+    if (thisNode->westLimit == 1) vectorOut.push_back(&MapNodes[thisNode->y][thisNode->x-1]);
+    if (thisNode->eastLimit == 1) vectorOut.push_back(&MapNodes[thisNode->y][thisNode->x+1]);
+
+    return vectorOut;
+}
+
+Vector<Node*> AStar_Algorithm(Node* StartNode, Node* GoalNode) {
+    Vector<Node*> open;
+    Vector<Node*> closed;
+
+    resetMap();
+    Node* start = StartNode;
+    
+    start->g = 0;
+    start->h = ManhattanDistance(StartNode->x, StartNode->y, GoalNode->x, GoalNode->y);
+    start->parent = nullptr;
+    open.push_back(start);
+
+    while(!open.empty()) {
+
+        // Verify and choose the lowest f
+        Node* current = open[0];
+        for (Node* n: open) {
+            if (n->f() < current->f()) current = n;
+        }
+
+        // In case we are in the goal, find the parents of the nodes until get to the start node
+        if(current->x == GoalNode->x && current->y == GoalNode->y) {
+            Vector<Node*> path;
+            while(current != nullptr) {
+                path.push_back(current);
+                current = current->parent;
+                Serial.print("x: ");
+                Serial.print(current->x);
+                Serial.print(" y: ");
+                Serial.println(current->y);
+            }
+            // Reverse the path to obtain the right order
+            reverseVector(path);
+            // Return final path
+            return path;
+        }
+
+        // Move the current node to closed
+        open.remove(current);
+        closed.push_back(current);
+
+        // Identify neighbors and explore them
+        Vector<Node*> neighbors = GetNeighbors(current);
+        for (Node* neighbor : neighbors) {
+            int neighbor_g = current->g + 1;
+            bool skip = false;
+            bool inOpen = false;
+            
+            // Verify if the node is in the open vector
+            for (Node* o : open) {
+                // If the current cost is greater or equal than the cost that Node already has,
+                // move to the next neighbor 
+                if (o == neighbor) {
+                    inOpen = true;
+                    // Update neighbor only if it finds a better path
+                    if (neighbor_g < o->g) {
+                        o->g = neighbor_g;
+                        o->parent = current;
+                    }
+                    break;
+                }
+            }
+
+            // Verify if the node is in the closed vector
+            for (Node* c : closed) {
+                // If the current cost is greater or equal than the cost that Node already has,
+                // move to the next neighbor 
+                if (c == neighbor) {
+                    skip = true;
+                    break;
+                }
+            }
+            if (skip) continue;
+
+            // In case the neighbor is neither in the open nor the closed vector,
+            // add it to the open vector
+            if (!inOpen) {
+                neighbor->g = neighbor_g;
+                neighbor->h = ManhattanDistance(neighbor->x, neighbor->y, GoalNode->x, GoalNode->y);
+                neighbor->parent = current;
+                open.push_back(neighbor);
+            }
+
+        }
+    }
+  return {};
+}
+
+    // Functions to translate the Node Vector into positions and orders
+importantVectors translateNodes2Orders(Vector<Node*> Path, int originalOrientation) {
+    Vector<Node*> final_nodes;
+    Vector<direction> final_orders;
+    Vector<int> tempOrders;
+    int n;
+    int currentOrientation = originalOrientation;
+    int nextOrientation;
+    for (int i = 0; i < Path.size()-1; i++) {
+        Node* p = Path[i];
+        auto [n, nextOrientation] = getNextOrder(Path[i], Path[i+1], currentOrientation);
+        tempOrders.push_back(n);
+        //cout << nextOrientation << " \n";
+        currentOrientation = nextOrientation;
+    }
+
+    for (int i = 0; i < Path.size()-1; i++) {
+        Node* p = Path[i];
+        int ord = tempOrders[i];
+        if (p->northLimit+p->southLimit+p->eastLimit+p->westLimit > 2) {
+            final_nodes.push_back(p);
+            if(ord == 0) final_orders.push_back(FORWARD);
+            if(ord == -1) final_orders.push_back(LEFT);
+            if(ord == 1) final_orders.push_back(RIGHT);
+            if(ord == 2) final_orders.push_back(BACKWARD);
+        }
+    }
+
+    return importantVectors { final_nodes, final_orders };
+}
+
+dobleInt getNextOrder(Node* currentNode, Node* nextNode, int originalOrientation) {
+    int change_y = nextNode->y - currentNode->y;
+    int change_x = nextNode->x - currentNode->x;
+
+    int currentOrientation = originalOrientation;
+    int targetOrientation;
+    int order;
+
+    if (change_y == 1)          targetOrientation = NORTH;
+    else if (change_y == -1)    targetOrientation = SOUTH;
+    else if (change_x == 1)     targetOrientation = EAST;
+    else if (change_x == -1)    targetOrientation = WEST;
+
+    int diff = (targetOrientation - currentOrientation + 4) % 4;
+
+    switch (diff) {
+    case 0:
+        order = FORWARD;
+        break;
+    case 1:
+        order = RIGHT;
+        break;
+
+    case 3:
+        order = LEFT;
+        break;
+    
+    case 2:
+        order = BACKWARD;
+        break;
+
+    default:
+        break;
+    }
+    currentOrientation = targetOrientation;
+    return dobleInt {order, currentOrientation};
+}
+
+dobleInt Astar_robot(int currentIntersection, int distanceFromIntersection, int orientation){
+    // define 2 paths
+    // path 1: from the last node to the goal node (distance = path + distanceFromIntersaction)
+    // path 2: from the following node, to the (distance = path + (distanceBetweenIntersactions - distanceFromIntersaction))
+    // choose the path with the lowest distance
+    
+    // specialNode will tell us if the robot will cross the node without dark line. If it doesn't cross that node, or if it does it and the order is to go forward, the number will stay at -1
+    // Otherwise the number will corespond to the number of the order.
+
+    int specialNode = -1;
+    Serial.println("Path 1 calculation");
+    Vector<Node*> path1 = AStar_Algorithm(intersectionNodes[currentIntersection], finalCylinderNode);
+    Serial.println("Path 2 calculation");
+    Vector<Node*> path2 = AStar_Algorithm(intersectionNodes[currentIntersection + 1], finalCylinderNode);
+    Serial.println(path1[0]->x);
+    Serial.println(path2[0]->x);
+    importantVectors myVectors;
+
+    if (path1.size() > path2.size()) {
+        myVectors = translateNodes2Orders(path2, orientation);
+    }
+    else {
+        orientation += 2;
+        myVectors = translateNodes2Orders(path1, orientation);       
+    }
+
+    auto& [finalNodes, finalOrders] = myVectors;
+
+    for(int i = 0; i < finalNodes.size(); i++) {
+        Node* c_node = finalNodes[i];
+        int c_order = finalOrders[i];
+        if (c_node->x == 4 && c_node->y == 4) {
+            if (c_order == 0) finalOrders.remove(i);
+            else specialNode = i;
+        }  
+    }
+
+    if (path1.size() <= path2.size()) {
+      insertAtFront(finalOrders, BACKWARD);
+    }
+
+    finalOrders.push_back(FORWARD);
+    finalOrders.push_back(LEFT);
+    finalOrders.push_back(LEFT);
+
+    int n = finalOrders.size();
+    Serial.println(n);
+
+    // Testing if this will change the whole intersection array
+
+    for (int i = 0; i < n; i++) {
+      intersectionTurns[i] = finalOrders[i];
+      if(intersectionTurns[i] == FORWARD) Serial.print("forward");
+      if(intersectionTurns[i] == BACKWARD) Serial.print("backward");
+      if(intersectionTurns[i] == LEFT) Serial.print("left");
+      if(intersectionTurns[i] == RIGHT) Serial.print("right");
+    }
+
+    return dobleInt {n, specialNode};
+}
+
+// Function to make vectors work better, should've used another collective class
+template<typename T>
+void reverseVector(Vector<T>& v) {
+    int n = v.size();
+    for (int i = 0; i < n / 2; i++) {
+        T temp = v[i];
+        v[i] = v[n - 1 - i];
+        v[n - 1 - i] = temp;
+    }
+}
+
+template<typename T>
+void insertAtFront(Vector<T>& v, const T& value) {
+    int n = v.size();
+    v.push_back(value);  // make space
+    
+    for (int i = n; i > 0; i--) {
+        v[i] = v[i - 1];
+    }
+    
+    v[0] = value;
+}
+
+// pls don't explode
   //Commenting out encoders, we don't use them anyways
 /*
 void ENCODER_RIGHT_A_ISR() {
