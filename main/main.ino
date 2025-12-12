@@ -115,10 +115,9 @@ enum direction {
 };
 
 int countCylinders = 0;
-
+int nonIntersectionTurnCount = 0;
 int currentIntersection = 0;
 direction intersectionTurns[18] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, RIGHT /*Is now in final dead end*/, FORWARD, FORWARD, LEFT, LEFT, FORWARD, RIGHT, LEFT };
-
 /*TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
  Option 1:
  Following line -> at least one turn sensor goes high -> note the sensors that went high, but continue forward until they go low again -> note if forward is still high -> we now know what the intersection looks like, choose correct from possible options
@@ -277,8 +276,10 @@ void loop() {
         // Only one possible turn, so choose it
         if (hasRightTurn) {
           chosenTurn = RIGHT;
+          nonIntersectionTurnCount++;
         } else if (hasLeftTurn) {
           chosenTurn = LEFT;
+          nonIntersectionTurnCount++;
         } else if (hasForwardTurn) {
           chosenTurn = FORWARD;
         }
