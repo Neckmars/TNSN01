@@ -40,7 +40,7 @@
 #define VERTICAL_PRE_OPEN_POS 105
 #define VERTICAL_UP_POS 60
 #define VERTICAL_DRIVE_POS 85
-#define DISTANCE_FROM_GRIPPER 10
+#define DISTANCE_FROM_GRIPPER 11.5
 
 #define STARTBUTTON 12
 
@@ -82,7 +82,6 @@ int hasForwardTurn = 0;
 
 int lastError;
 int integral;
-
 int sensorOnLine[6] = { 0, 0, 0, 0, 0, 0 };
 int sensorAlmostOnLine[6] = { 0, 0, 0, 0, 0, 0 };
 int sensorOffLine[6] = { 0, 0, 0, 0, 0, 0 };
@@ -99,9 +98,9 @@ float Kd = 10;
 
 float amountOfPIDS = 0;
 
-const int MAX_CORRECTION = 55;
+const int MAX_CORRECTION = 45;
 
-const int baseSpeed = 200;
+const int baseSpeed = 210;
 
 volatile long encoderRight = 0;
 volatile long encoderLeft = 0;
@@ -114,6 +113,7 @@ long dt = 0;
 bool offLine = true;
 long distance = 0;
 
+
 enum direction {
   FORWARD,
   LEFT,
@@ -121,6 +121,7 @@ enum direction {
   BACKWARD
 };
 
+<<<<<<< HEAD
 // A star node class and variables
 int currentNewIntersection = -1;
 int cylindersCollected = 1;
@@ -192,8 +193,12 @@ struct dobleInt {
 
 
 // Intersection turns
+=======
+int countCylinders = 0;
+
+>>>>>>> 2aadceef6e0d9ec7997d7496d4e682a3ab15c91c
 int currentIntersection = 0;
-direction intersectionTurns[15] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
+direction intersectionTurns[18] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, RIGHT /*Is now in final dead end*/, FORWARD, FORWARD, LEFT, LEFT, FORWARD, RIGHT, LEFT };
 
 /*TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
  Option 1:
@@ -355,6 +360,9 @@ void loop() {
       if ((hasLeftTurn + hasRightTurn + hasForwardTurn) >= 2) {
         // We found intersection, use map to choose turn
         chosenTurn = intersectionTurns[currentIntersection];
+        if (currentIntersection == 11 && countCylinders != 3) {
+          currentIntersection = 13;
+        }
         currentIntersection++;
         Serial.println("Intersection detected: " + String(currentIntersection) + " Index: " + String(currentIntersection - 1));
       } else {
@@ -444,6 +452,7 @@ long microsecondsToCentimeters(long microseconds) {
 }
 
 void pickUpAndStore() {
+  countCylinders++;
   analogWrite(MOTORLEFT1, 0);   // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 0);   // Speed (0-255)
   analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
@@ -471,9 +480,12 @@ void pickUpAndStore() {
   delay(200);
   gripperServo.detach();
   verticalServo.detach();
+  if (countCylinders == 3) {
+    uTurn();
+  }
 }
 
-int readDistance() {
+long readDistance() {
   digitalWrite(TRIGPIN, LOW);
   delayMicroseconds(2);
   digitalWrite(TRIGPIN, HIGH);
@@ -617,7 +629,7 @@ void turnLeft() {
 
 void forcePID(int amountOfMillis) {
   long startTime = millis();
-  while (millis() -  startTime < amountOfMillis) {
+  while (millis() - startTime < amountOfMillis) {
     followLine();
   }
 }
@@ -626,7 +638,7 @@ void noLineLogic() {
   Serial.println("Start of noLineLogic()");
   float timeSinceStart = millis();
   bool foundLine = false;
-  driveMotors(170, 160);
+  driveMotors(210, 205);
   while (readDistance() > 13 && !foundLine) {
     if (millis() - timeSinceStart > 1400) {
       if (lineFinder()) {
@@ -649,12 +661,13 @@ void noLineLogic() {
   }
   if (foundLine) {
     Serial.println("Time since start of noLineLogic(): " + String(millis() - timeSinceStart));
+    forcePID(300);
     return;
   } else if (currentIntersection == 5) {
     Serial.println("I am turning left at intersection 5!");
 
     analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-    analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
+    analogWrite(MOTORLEFT2, 150);   // Speed (0-255)
     analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
     analogWrite(MOTORRIGHT2, 0);
 
@@ -662,7 +675,7 @@ void noLineLogic() {
     forcePID(400);
     currentIntersection++;
 
-  } else if (currentIntersection >= 14) {
+  } else if (currentIntersection == 14 || currentIntersection == 17) {
     finalDance();
   } else {
     if (millis() - timeSinceStart <= 300) {
@@ -883,6 +896,7 @@ void calibrateSensors() {
   EEPROM.put(0, calib);
 }
 
+<<<<<<< HEAD
 // A star functions
 void resetMap() {
     for(int j = 0; j < 7; j++){
@@ -1218,6 +1232,9 @@ void insertAtFront(Vector<T>& v, const T& value) {
 
 // pls don't explode
   //Commenting out encoders, we don't use them anyways
+=======
+//Commenting out encoders, we don't use them anyways
+>>>>>>> 2aadceef6e0d9ec7997d7496d4e682a3ab15c91c
 /*
 void ENCODER_RIGHT_A_ISR() {
   int stateA = digitalRead(ENCODER_RIGHT_A);
