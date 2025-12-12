@@ -21,6 +21,7 @@
 
 #define FULL_TURN 3840
 #define TURNRATIO 0.65
+
 #define ON_LINE_FACTOR .9
 #define ALMOST_ON_LINE_FACTOR .80
 #define OFF_LINE_FACTOR .7
@@ -85,9 +86,9 @@ struct CalibrationValues {
   int sensorOffLine[6];
 };
 
-float Kp = 0.25;
+float Kp = 0.20;
 float Ki = 0.00024;
-float Kd = 8;
+float Kd = 10;
 
 float amountOfPIDS = 0;
 
@@ -113,7 +114,7 @@ enum direction {
   BACKWARD
 };
 
-int currentIntersection = 5;
+int currentIntersection = 0;
 direction intersectionTurns[15] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
 
 /*TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
@@ -155,24 +156,26 @@ void setup() {
   pinMode(LT_R2_PIN, INPUT);
   pinMode(LT_R3_PIN, INPUT);
 
+  //Commenting out encoders, we don't use them anyways
+  /*
   pinMode(ENCODER_RIGHT_A, INPUT_PULLUP);
   pinMode(ENCODER_RIGHT_B, INPUT_PULLUP);
   pinMode(ENCODER_LEFT_A, INPUT_PULLUP);
   pinMode(ENCODER_LEFT_B, INPUT_PULLUP);
-
+  */
   pinMode(TRIGPIN, OUTPUT);
   pinMode(ECHOPIN, INPUT);
-
+  //Commenting out encoders, we don't use them anyways
+  /*
   attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A), ENCODER_RIGHT_A_ISR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_B), ENCODER_RIGHT_B_ISR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A), ENCODER_LEFT_A_ISR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_B), ENCODER_LEFT_B_ISR, CHANGE);
-
+  */
   pinMode(STARTBUTTON, INPUT_PULLUP);
 
   while (digitalRead(STARTBUTTON) == HIGH)
     ;
-
   if (DO_CALIBRATION) {
     Serial.println("Starting Calibration!");
     calibrateSensors();
@@ -248,7 +251,7 @@ void loop() {
     // read sensors again to se when we exit the intersection
     leftTurnSensor = analogRead(sensorPins[0]);
     rightTurnSensor = analogRead(sensorPins[5]);
-    if (leftTurnSensor <= ON_LINE && rightTurnSensor <= ON_LINE) {
+    if (leftTurnSensor <= sensorOffLine[0] && rightTurnSensor <= sensorOffLine[5]) {
       delay(150);
       // We overshot the intersection, check for forward option
       if (analogRead(sensorPins[2]) > sensorAlmostOnLine[2] || analogRead(sensorPins[3]) > sensorAlmostOnLine[3]) {
@@ -264,7 +267,7 @@ void loop() {
         // We found intersection, use map to choose turn
         chosenTurn = intersectionTurns[currentIntersection];
         currentIntersection++;
-        Serial.println("Intersection detected: " + String(currentIntersection));
+        Serial.println("Intersection detected: " + String(currentIntersection) + " Index: " + String(currentIntersection - 1));
       } else {
         // Only one possible turn, so choose it
         if (hasRightTurn) {
@@ -513,8 +516,9 @@ void turnLeft() {
   forcePID(200);
 }
 
-void forcePID(int amountOfCycles) {
-  for (int i = 0; i < amountOfCycles; i++) {
+void forcePID(int amountOfMillis) {
+  long startTime = millis();
+  while (millis() -  startTime < amountOfMillis) {
     followLine();
   }
 }
@@ -525,11 +529,11 @@ void noLineLogic() {
   bool foundLine = false;
   driveMotors(170, 160);
   while (readDistance() > 13 && !foundLine) {
-    if (millis() - timeSinceStart > 1500) {
+    if (millis() - timeSinceStart > 1400) {
       if (lineFinder()) {
         Serial.println("Found the line again!");
         foundLine = true;
-        forcePID(200);
+        forcePID(350);
         break;
       } else {
         driveMotors(170, 160);
@@ -562,7 +566,9 @@ void noLineLogic() {
   } else if (currentIntersection >= 14) {
     finalDance();
   } else {
-    uTurn();
+    if (millis() - timeSinceStart <= 300) {
+      uTurn();
+    }
   }
 }
 
@@ -604,7 +610,7 @@ bool lineFinder() {
   analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
   float timeDelay = millis();
-  while (millis() - timeDelay < 300) {
+  while (millis() - timeDelay < 600) {
     for (int i = 0; i < 6; i++) {
       if (analogRead(sensorPins[i]) > sensorOnLine[i]) {
         return true;
@@ -616,6 +622,19 @@ bool lineFinder() {
   analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
   analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 200);
+  timeDelay = millis();
+  while (millis() - timeDelay < 1200) {
+    for (int i = 0; i < 6; i++) {
+      if (analogRead(sensorPins[i]) > sensorOnLine[i]) {
+        return true;
+      }
+    }
+  }
+  //TURNING LEFT THIRD TIME
+  analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
+  analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
+  analogWrite(MOTORRIGHT2, 0);
   timeDelay = millis();
   while (millis() - timeDelay < 600) {
     for (int i = 0; i < 6; i++) {
@@ -749,6 +768,7 @@ void calibrateSensors() {
     sensorAlmostOnLine[i] = sensorDiff * ALMOST_ON_LINE_FACTOR;
     sensorOffLine[i] = sensorDiff * OFF_LINE_FACTOR;
 
+    Serial.print(" Raw values pin " + String(i) + ": " + String(maxSensorValues[i]));
     Serial.print(" OnLine values pin " + String(i) + ": " + String(sensorOnLine[i]));
     Serial.print(" AlmostOnLine values pin " + String(i) + ": " + String(sensorAlmostOnLine[i]));
     Serial.println(" OffLine values pin " + String(i) + ": " + String(sensorOffLine[i]));
@@ -763,6 +783,8 @@ void calibrateSensors() {
   EEPROM.put(0, calib);
 }
 
+  //Commenting out encoders, we don't use them anyways
+/*
 void ENCODER_RIGHT_A_ISR() {
   int stateA = digitalRead(ENCODER_RIGHT_A);
   int stateB = digitalRead(ENCODER_RIGHT_B);
@@ -795,4 +817,4 @@ void ENCODER_LEFT_B_ISR() {
 
   if (stateA != stateB) encoderLeft++;
   else encoderLeft--;
-}
+}*/
