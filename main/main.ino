@@ -1,6 +1,5 @@
 #include <Servo.h>
 #include <EEPROM.h>
-#include <Vector.h>
 
 #define LT_L3_PIN A5
 #define LT_L2_PIN A4
@@ -54,6 +53,9 @@
 #define DEBUG_MOTOR_SPEED 0
 #define DEBUG_FLAGS 1
 #define DO_CALIBRATION 0
+
+#define MAX_NODES 49
+#define MAX_ORDERS 30
 
 // Orientation definitions
 #define NORTH 0
@@ -113,19 +115,18 @@ long dt = 0;
 bool offLine = true;
 long distance = 0;
 
-
 enum direction {
-  FORWARD,
-  LEFT,
-  RIGHT,
-  BACKWARD
+  FORWARD = 0,
+  LEFT = 1,
+  RIGHT = 2,
+  BACKWARD = 3
 };
 
-<<<<<<< HEAD
 // A star node class and variables
 int currentNewIntersection = -1;
-int cylindersCollected = 1;
 int currentOrientation = WEST;
+int newMaxNodes = -1;
+int specialNodePos = -1;
 
 class Node {
 public:
@@ -168,7 +169,7 @@ public:
 
 // Define Node positions
 Node MapNodes[7][7];
-Node* intersectionNodes[14]= {&MapNodes[1][2], &MapNodes[1][1],
+Node* intersectionNodes[15]= {&MapNodes[0][3], &MapNodes[1][2], &MapNodes[1][1],
                                 &MapNodes[1][1], &MapNodes[6][3],
                                 &MapNodes[6][3], &MapNodes[4][4],
                                 &MapNodes[3][4], &MapNodes[1][1],
@@ -179,25 +180,25 @@ Node* finalCylinderNode = &MapNodes[2][6];
 
 // Define help structures 
 struct importantVectors {
-        Vector<Node*> v1;
-        Vector<direction> v2;
+  Node* nodes[MAX_NODES];
+  int orders[MAX_ORDERS];
+  int size;
 }; 
-struct dobleInt {
-    int value1;
-    direction value2;
+struct ordersAndIndex {
+  direction orders[MAX_ORDERS];
+  int size;
+  int index;
 };
-/*struct ordersAndIndex {
-    Vector<int> order;
-    int index;
-};*/
+struct OrderResult {
+  direction order;
+  int newOrientation;
+};
 
+int countCylinders = 1;
 
 // Intersection turns
-=======
-int countCylinders = 0;
-
->>>>>>> 2aadceef6e0d9ec7997d7496d4e682a3ab15c91c
 int currentIntersection = 0;
+
 direction intersectionTurns[18] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, RIGHT /*Is now in final dead end*/, FORWARD, FORWARD, LEFT, LEFT, FORWARD, RIGHT, LEFT };
 
 /*TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
@@ -292,9 +293,13 @@ void loop() {
   offLine = true;
 
   // Only enters when the number of cyllinders collected are 2 and currentNewIntersection hasn't been used yet
-  if (cylindersCollected == 2 && currentNewIntersection == -1) {
+  if (countCylinders == 2 && currentNewIntersection == -1) {
     Serial.println("Calculating AStar");
-    auto [newMaxNodes, specialNodePos] = Astar_robot(currentIntersection, 0, currentOrientation);
+    ordersAndIndex result = Astar_robot(currentIntersection, 0, currentOrientation);
+
+    newMaxNodes = result.size;
+    specialNodePos = result.index;
+
     currentNewIntersection = 0;
     currentIntersection = 0;
   }
@@ -431,7 +436,6 @@ void followLine() {
 
   if (distance <= DISTANCE_FROM_GRIPPER) {  // Might be inacurate when close range in practice so might have to do it "blind", i.e move forward x amount, then do closing
     Serial.println("Object too close, grabbing it!");
-    cylindersCollected++;
     pickUpAndStore();
   }
 
@@ -896,7 +900,6 @@ void calibrateSensors() {
   EEPROM.put(0, calib);
 }
 
-<<<<<<< HEAD
 // A star functions
 void resetMap() {
     for(int j = 0; j < 7; j++){
@@ -978,175 +981,207 @@ int ManhattanDistance(int x1, int y1, int x2, int y2) {
     return (abs(x1 - x2) + abs(y1 - y2));
 }
 
-Vector<Node*> GetNeighbors(Node* thisNode) {
-    Vector<Node*> vectorOut;
-    Serial.println("");
-    if (thisNode->northLimit == 1) vectorOut.push_back(&MapNodes[thisNode->y+1][thisNode->x]);
-    if (thisNode->southLimit == 1) vectorOut.push_back(&MapNodes[thisNode->y-1][thisNode->x]);
-    if (thisNode->westLimit == 1) vectorOut.push_back(&MapNodes[thisNode->y][thisNode->x-1]);
-    if (thisNode->eastLimit == 1) vectorOut.push_back(&MapNodes[thisNode->y][thisNode->x+1]);
+int GetNeighbors(Node* node, Node* out[]) {
+  Serial.println("");
+  int count = 0;
 
-    return vectorOut;
+  if (node->northLimit) out[count++] = &MapNodes[node->y + 1][node->x];
+  if (node->southLimit) out[count++] = &MapNodes[node->y - 1][node->x];
+  if (node->westLimit)  out[count++] = &MapNodes[node->y][node->x - 1];
+  if (node->eastLimit)  out[count++] = &MapNodes[node->y][node->x + 1];
+
+  return count;
 }
 
-Vector<Node*> AStar_Algorithm(Node* StartNode, Node* GoalNode) {
-    Vector<Node*> open;
-    Vector<Node*> closed;
+int AStar_Algorithm(Node* StartNode, Node* GoalNode, Node* path[]) {
+  Node* open[MAX_NODES];
+  Node* closed[MAX_NODES];
+  int openSize = 0;
+  int closedSize = 0;
+  
+  resetMap();
+  Node* start = StartNode;
+  
+  start->g = 0;
+  start->h = ManhattanDistance(StartNode->x, StartNode->y, GoalNode->x, GoalNode->y);
+  start->parent = nullptr;
+  open[openSize++] = start;
 
-    resetMap();
-    Node* start = StartNode;
+  // Problem found, it's related to how the push_back works
+  // Is not saving Node* star and that leads to different values when tested
+  /*Serial.print("h: ");
+    Serial.print(start->h);
+    Serial.print(" y: ");
+    Serial.println(start->y);
+    Serial.println(start->x);
+
+    Serial.print("h: ");
+    Serial.print(open[1]->h);
+    Serial.print(" y: ");
+    Serial.println(open[1]->y);
+    Serial.println(open[1]->x);*/
+
+  
+  while(openSize > 0) {
+    // Verify and choose the lowest f
+    Node* current = open[0];
+    int currentIndex = 0;
     
-    start->g = 0;
-    start->h = ManhattanDistance(StartNode->x, StartNode->y, GoalNode->x, GoalNode->y);
-    start->parent = nullptr;
-    open.push_back(start);
+    Serial.print("x: ");
+    Serial.print(current->x);
+    Serial.print(" y: ");
+    Serial.println(current->y);
 
-    while(!open.empty()) {
-
-        // Verify and choose the lowest f
-        Node* current = open[0];
-        for (Node* n: open) {
-            if (n->f() < current->f()) current = n;
-        }
-
-        // In case we are in the goal, find the parents of the nodes until get to the start node
-        if(current->x == GoalNode->x && current->y == GoalNode->y) {
-            Vector<Node*> path;
-            while(current != nullptr) {
-                path.push_back(current);
-                current = current->parent;
-                Serial.print("x: ");
-                Serial.print(current->x);
-                Serial.print(" y: ");
-                Serial.println(current->y);
-            }
-            // Reverse the path to obtain the right order
-            reverseVector(path);
-            // Return final path
-            return path;
-        }
-
-        // Move the current node to closed
-        open.remove(current);
-        closed.push_back(current);
-
-        // Identify neighbors and explore them
-        Vector<Node*> neighbors = GetNeighbors(current);
-        for (Node* neighbor : neighbors) {
-            int neighbor_g = current->g + 1;
-            bool skip = false;
-            bool inOpen = false;
-            
-            // Verify if the node is in the open vector
-            for (Node* o : open) {
-                // If the current cost is greater or equal than the cost that Node already has,
-                // move to the next neighbor 
-                if (o == neighbor) {
-                    inOpen = true;
-                    // Update neighbor only if it finds a better path
-                    if (neighbor_g < o->g) {
-                        o->g = neighbor_g;
-                        o->parent = current;
-                    }
-                    break;
-                }
-            }
-
-            // Verify if the node is in the closed vector
-            for (Node* c : closed) {
-                // If the current cost is greater or equal than the cost that Node already has,
-                // move to the next neighbor 
-                if (c == neighbor) {
-                    skip = true;
-                    break;
-                }
-            }
-            if (skip) continue;
-
-            // In case the neighbor is neither in the open nor the closed vector,
-            // add it to the open vector
-            if (!inOpen) {
-                neighbor->g = neighbor_g;
-                neighbor->h = ManhattanDistance(neighbor->x, neighbor->y, GoalNode->x, GoalNode->y);
-                neighbor->parent = current;
-                open.push_back(neighbor);
-            }
-
-        }
+    for (int i = 1; i < openSize; i++) {
+      if (open[i]->f() < current->f()) {
+          current = open[i];
+          currentIndex = i;
+      }
     }
+
+    // In case we are in the goal, find the parents of the nodes until get to the start node
+    if(current->x == GoalNode->x && current->y == GoalNode->y) {
+      int length = 0;
+
+      while(current) {
+        path[length++] = current;
+        current = current->parent;
+        Serial.print("x: ");
+        Serial.print(current->x);
+        Serial.print(" y: ");
+        Serial.println(current->y);
+      }
+
+      // Reverse the path to obtain the right order
+      for (int i = 0; i < length / 2; i++) {
+        Node* tmp = path[i];
+        path[i] = path[length - 1 - i];
+        path[length - 1 - i] = tmp;
+      }
+
+      return length;
+    }
+
+    // Move the current node to closed
+    for (int i = currentIndex; i < openSize - 1; i++) open[i] = open[i + 1];
+    openSize--;
+
+    closed[closedSize++] = current;
+
+    // Identify neighbors and explore them
+    Node* neighbors[4];
+    int nCount = GetNeighbors(current, neighbors);
+
+    for (int i = 0; i< nCount; i++) {
+      Node* neighbor = neighbors[i];
+      bool skip = false;
+      bool inOpen = false;
+      
+      // New current cost
+      int gNew = current->g + 1;
+
+      // Verify if the node is in the open array
+      for (int j = 0; j < openSize; j++) {
+        // If the current cost is greater or equal than the cost that Node already has,
+        // move to the next neighbor 
+        if (open[j] == neighbor) {
+          inOpen = true;
+          // Update neighbor only if it finds a better path
+          if (gNew < neighbor->g) {
+              neighbor->g = gNew;
+              neighbor->parent = current;
+          }
+          break;
+        }
+      }
+
+      // Verify if the node is in the closed vector
+      for (int j = 0; j < closedSize; j++) {
+          // If the current cost is greater or equal than the cost that Node already has,
+          // move to the next neighbor 
+          if (closed[j] == neighbor) {
+            skip = true;
+            // break;
+          }
+      }
+      if (skip) continue;
+
+      // In case the neighbor is neither in the open nor the closed vector,
+      // add it to the open vector
+      if (!inOpen) {
+        neighbor->g = gNew;
+        neighbor->h = ManhattanDistance(neighbor->x, neighbor->y, GoalNode->x, GoalNode->y);
+        neighbor->parent = current;
+        open[openSize++] = neighbor;
+      }
+
+    }
+  }
   return {};
 }
 
-    // Functions to translate the Node Vector into positions and orders
-importantVectors translateNodes2Orders(Vector<Node*> Path, int originalOrientation) {
-    Vector<Node*> final_nodes;
-    Vector<direction> final_orders;
-    Vector<int> tempOrders;
-    int n;
-    int currentOrientation = originalOrientation;
-    int nextOrientation;
-    for (int i = 0; i < Path.size()-1; i++) {
-        Node* p = Path[i];
-        auto [n, nextOrientation] = getNextOrder(Path[i], Path[i+1], currentOrientation);
-        tempOrders.push_back(n);
-        //cout << nextOrientation << " \n";
-        currentOrientation = nextOrientation;
-    }
+// Functions to translate the Node Vector into positions and orders
+importantVectors translateNodes2Orders(Node* Path[], int pathSize, int orientation) {
+  importantVectors result;
+  result.size = 0;
+  
+  int currentOrientation = orientation;
 
-    for (int i = 0; i < Path.size()-1; i++) {
-        Node* p = Path[i];
-        int ord = tempOrders[i];
-        if (p->northLimit+p->southLimit+p->eastLimit+p->westLimit > 2) {
-            final_nodes.push_back(p);
-            if(ord == 0) final_orders.push_back(FORWARD);
-            if(ord == -1) final_orders.push_back(LEFT);
-            if(ord == 1) final_orders.push_back(RIGHT);
-            if(ord == 2) final_orders.push_back(BACKWARD);
-        }
-    }
+  for (int i = 0; i < pathSize - 1; i++) {
+    OrderResult r = getNextOrder(Path[i], Path[i+1], currentOrientation);
+    currentOrientation = r.newOrientation;
 
-    return importantVectors { final_nodes, final_orders };
+    int connections =
+        Path[i]->northLimit +
+        Path[i]->southLimit +
+        Path[i]->eastLimit +
+        Path[i]->westLimit;
+
+    if (connections > 2) {
+        result.nodes[result.size] = Path[i];
+        result.orders[result.size] = r.order;
+        result.size++;
+    }
+  }
+
+  return result;
 }
 
-dobleInt getNextOrder(Node* currentNode, Node* nextNode, int originalOrientation) {
-    int change_y = nextNode->y - currentNode->y;
-    int change_x = nextNode->x - currentNode->x;
+OrderResult getNextOrder(Node* currentNode, Node* nextNode, int originalOrientation) {
+  int change_y = nextNode->y - currentNode->y;
+  int change_x = nextNode->x - currentNode->x;
+  int currentOrientation = originalOrientation;
+  int targetOrientation;
+  int order;
+  if (change_y == 1)          targetOrientation = NORTH;
+  else if (change_y == -1)    targetOrientation = SOUTH;
+  else if (change_x == 1)     targetOrientation = EAST;
+  else if (change_x == -1)    targetOrientation = WEST;
+  int diff = (targetOrientation - currentOrientation + 4) % 4;
+  OrderResult result;
 
-    int currentOrientation = originalOrientation;
-    int targetOrientation;
-    int order;
-
-    if (change_y == 1)          targetOrientation = NORTH;
-    else if (change_y == -1)    targetOrientation = SOUTH;
-    else if (change_x == 1)     targetOrientation = EAST;
-    else if (change_x == -1)    targetOrientation = WEST;
-
-    int diff = (targetOrientation - currentOrientation + 4) % 4;
-
-    switch (diff) {
-    case 0:
-        order = FORWARD;
-        break;
-    case 1:
-        order = RIGHT;
-        break;
-
-    case 3:
-        order = LEFT;
-        break;
-    
-    case 2:
-        order = BACKWARD;
-        break;
-
-    default:
-        break;
-    }
-    currentOrientation = targetOrientation;
-    return dobleInt {order, currentOrientation};
+  switch (diff) {
+  case 0:
+      order = FORWARD;
+      break;
+  case 1:
+      order = RIGHT;
+      break;
+  case 3:
+      order = LEFT;
+      break;
+  
+  case 2:
+      order = BACKWARD;
+      break;
+  default:
+      break;
+  }
+  result.newOrientation = targetOrientation;
+  return result;
 }
 
-dobleInt Astar_robot(int currentIntersection, int distanceFromIntersection, int orientation){
+ordersAndIndex Astar_robot(int currentIntersection, int distanceFromIntersection, int orientation){
     // define 2 paths
     // path 1: from the last node to the goal node (distance = path + distanceFromIntersaction)
     // path 2: from the following node, to the (distance = path + (distanceBetweenIntersactions - distanceFromIntersaction))
@@ -1156,58 +1191,62 @@ dobleInt Astar_robot(int currentIntersection, int distanceFromIntersection, int 
     // Otherwise the number will corespond to the number of the order.
 
     int specialNode = -1;
+    Node* path1[MAX_NODES];
+    Node* path2[MAX_NODES];
     Serial.println("Path 1 calculation");
-    Vector<Node*> path1 = AStar_Algorithm(intersectionNodes[currentIntersection], finalCylinderNode);
+    int size1 = AStar_Algorithm(intersectionNodes[currentIntersection], finalCylinderNode, path1);
     Serial.println("Path 2 calculation");
-    Vector<Node*> path2 = AStar_Algorithm(intersectionNodes[currentIntersection + 1], finalCylinderNode);
+    int size2 = AStar_Algorithm(intersectionNodes[currentIntersection + 1], finalCylinderNode, path2);
     Serial.println(path1[0]->x);
     Serial.println(path2[0]->x);
+
     importantVectors myVectors;
 
-    if (path1.size() > path2.size()) {
-        myVectors = translateNodes2Orders(path2, orientation);
+    if (size1 > size2) {
+        myVectors = translateNodes2Orders(path2, size2, orientation);
     }
     else {
-        orientation += 2;
-        myVectors = translateNodes2Orders(path1, orientation);       
+        orientation = (orientation +2)%4;
+        myVectors = translateNodes2Orders(path1, size1, orientation);       
     }
 
-    auto& [finalNodes, finalOrders] = myVectors;
+    ordersAndIndex out;
+    out.size = 0;
+    out.index = -1;
 
-    for(int i = 0; i < finalNodes.size(); i++) {
-        Node* c_node = finalNodes[i];
-        int c_order = finalOrders[i];
-        if (c_node->x == 4 && c_node->y == 4) {
-            if (c_order == 0) finalOrders.remove(i);
-            else specialNode = i;
-        }  
+    for(int i = 0; i < myVectors.size; i++) {
+      out.orders[out.size] = myVectors.orders[i];
+      if (myVectors.nodes[i]->x == 4 && myVectors.nodes[i]->y == 4) {
+        if (myVectors.orders[i] != FORWARD) out.index = out.size;
+      }  
+      out.size++;
     }
 
-    if (path1.size() <= path2.size()) {
+    /*if (path1.size() <= path2.size()) {
       insertAtFront(finalOrders, BACKWARD);
-    }
+    }*/
 
-    finalOrders.push_back(FORWARD);
-    finalOrders.push_back(LEFT);
-    finalOrders.push_back(LEFT);
+    out.orders[out.size++] = FORWARD;
+    out.orders[out.size++] = LEFT;
+    out.orders[out.size++] = LEFT;
 
-    int n = finalOrders.size();
+    int n = out.size;
     Serial.println(n);
 
     // Testing if this will change the whole intersection array
 
     for (int i = 0; i < n; i++) {
-      intersectionTurns[i] = finalOrders[i];
-      if(intersectionTurns[i] == FORWARD) Serial.print("forward");
-      if(intersectionTurns[i] == BACKWARD) Serial.print("backward");
-      if(intersectionTurns[i] == LEFT) Serial.print("left");
-      if(intersectionTurns[i] == RIGHT) Serial.print("right");
+      intersectionTurns[i] = out.orders[i];
+      if(intersectionTurns[i] == FORWARD) Serial.println("forward");
+      if(intersectionTurns[i] == BACKWARD) Serial.println("backward");
+      if(intersectionTurns[i] == LEFT) Serial.println("left");
+      if(intersectionTurns[i] == RIGHT) Serial.println("right");
     }
 
-    return dobleInt {n, specialNode};
+    return out;
 }
 
-// Function to make vectors work better, should've used another collective class
+/*
 template<typename T>
 void reverseVector(Vector<T>& v) {
     int n = v.size();
@@ -1228,13 +1267,11 @@ void insertAtFront(Vector<T>& v, const T& value) {
     }
     
     v[0] = value;
-}
+}*/
 
 // pls don't explode
   //Commenting out encoders, we don't use them anyways
-=======
-//Commenting out encoders, we don't use them anyways
->>>>>>> 2aadceef6e0d9ec7997d7496d4e682a3ab15c91c
+
 /*
 void ENCODER_RIGHT_A_ISR() {
   int stateA = digitalRead(ENCODER_RIGHT_A);
