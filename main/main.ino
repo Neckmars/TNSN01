@@ -23,7 +23,7 @@
 
 #define ON_LINE_FACTOR .9
 #define ALMOST_ON_LINE_FACTOR .80
-#define OFF_LINE_FACTOR .7
+#define OFF_LINE_FACTOR .5
 
 #define TRIGPIN 8
 #define ECHOPIN 7
@@ -121,7 +121,7 @@ enum direction {
 // A star node class and variables
 int8_t AStarActivated = 0;
 int8_t currentOrientation = WEST;
-int8_t newIntersectionsSize = -1;
+int8_t newPathSize = -1;
 int8_t specialIntersectionIndex = 5;
 
 class Node {
@@ -163,13 +163,13 @@ public:
 
 // Define Node positions
 Node MapNodes[7][7];
-Node* intersectionNodes[15] = { &MapNodes[0][3], &MapNodes[1][2], &MapNodes[1][1],
+Node* intersectionNodes[16] = { &MapNodes[0][3], &MapNodes[1][2], &MapNodes[1][1],
                                 &MapNodes[1][1], &MapNodes[6][3],
                                 &MapNodes[6][3], &MapNodes[4][4],
                                 &MapNodes[3][4], &MapNodes[1][1],
                                 &MapNodes[1][2], &MapNodes[2][3],
-                                &MapNodes[2][4], &MapNodes[2][4],
-                                &MapNodes[2][3], &MapNodes[1][2] };
+                                &MapNodes[2][3], &MapNodes[2][4],
+                                &MapNodes[2][4], &MapNodes[2][3], &MapNodes[1][2] };
 Node* finalCylinderNode = &MapNodes[2][6];
 
 // Define help structures
@@ -193,7 +193,10 @@ int8_t countCylinders = 0;
 // Intersection turns
 int8_t currentIntersection = 0;
 
-direction intersectionTurns[18] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, RIGHT /*Is now in final dead end*/, FORWARD, FORWARD, LEFT, LEFT, FORWARD, RIGHT, LEFT };
+long delayForNoLine = 0;
+
+
+direction intersectionTurns[18] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
 
 /*TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
  Option 1:
@@ -298,8 +301,8 @@ void loop() {
     currentIntersection = 0;
   }*/
 
-
-  for (int i = 1; i < 5; i++) {
+  // Look for a sensor reading the line
+  for (int i = 0; i < 6; i++) {
     int raw = analogRead(sensorPins[i]);
     if (raw > sensorOffLine[i]) {
       offLine = false;
@@ -308,8 +311,7 @@ void loop() {
 
   int leftTurnSensor = analogRead(sensorPins[0]);
   int rightTurnSensor = analogRead(sensorPins[5]);
-  // Read distance
-
+  
   if (DEBUG_TURN_SENSORS) {
     Serial.println("Left turn sensor: " + String(leftTurnSensor));
     Serial.println("Right turn sensor: " + String(rightTurnSensor));
@@ -341,7 +343,7 @@ void loop() {
     leftTurnSensor = analogRead(sensorPins[0]);
     rightTurnSensor = analogRead(sensorPins[5]);
     if (leftTurnSensor <= sensorOffLine[0] && rightTurnSensor <= sensorOffLine[5]) {
-      delay(150);
+      delay(100);
       // We overshot the intersection, check for forward option
       if (analogRead(sensorPins[2]) > sensorAlmostOnLine[2] || analogRead(sensorPins[3]) > sensorAlmostOnLine[3]) {
         hasForwardTurn = 1;
@@ -354,12 +356,15 @@ void loop() {
       // if we have 2 or more options, we are in an intersection
       if ((hasLeftTurn + hasRightTurn + hasForwardTurn) >= 2) {
         // We found intersection, use map to choose turn
-        // Only enters when the number of cyllinders collected are 2 and currentNewIntersection hasn't been used yet
+        // Only enters when the number of cyllinders collected are 2 and Astar  hasn't been calculated yet
         if (countCylinders == 2 && !AStarActivated) {
           Serial.println("Calculating AStar");
+          
+          // Astar_robot sets path (intersectionTurns) to new path
           ordersAndIndex result = Astar_robot(currentIntersection + 1, 0, currentOrientation);
 
-          //newIntersectionsSize = result.size;
+          newPathSize = result.size;
+          Serial.println("New path size: " + String(newPathSize));
           specialIntersectionIndex = result.index;
 
           AStarActivated = 1;
@@ -419,7 +424,10 @@ void loop() {
   }
   if (offLine) {
     //Serial.println("sum: " + String(sum));
-    noLineLogic();
+    if (millis() - delayForNoLine > 500) {
+      noLineLogic();
+      delayForNoLine = millis();
+    }
   }
 
   // Follow line PID
@@ -596,7 +604,6 @@ void turnRight() {
   analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 255);  // Speed (0-255)
   delay(50);
-
   forcePID(200);
 }
 
@@ -645,9 +652,9 @@ void noLineLogic() {
   Serial.println("Start of noLineLogic()");
   float timeSinceStart = millis();
   bool foundLine = false;
-  driveMotors(210, 205);
+  driveMotors(210, 215);
   while (readDistance() > 13 && !foundLine) {
-    if (millis() - timeSinceStart > 1300) {
+    if (millis() - timeSinceStart > 1500) {
       if (lineFinder()) {
         Serial.println("Found the line again!");
         foundLine = true;
@@ -668,7 +675,7 @@ void noLineLogic() {
   }
   if (foundLine) {
     Serial.println("Time since start of noLineLogic(): " + String(millis() - timeSinceStart));
-    forcePID(300);
+    forcePID(500);
     return;
   } else if (currentIntersection == specialIntersectionIndex) {
     switch (intersectionTurns[currentIntersection]) {
@@ -680,7 +687,7 @@ void noLineLogic() {
         analogWrite(MOTORLEFT2, 150);   // Speed (0-255)
         analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
         analogWrite(MOTORRIGHT2, 0);
-        delay(400);
+        delay(550);
         break;
       case RIGHT:
         if (DEBUG_TURNING) {
@@ -696,7 +703,7 @@ void noLineLogic() {
     forcePID(400);
     currentIntersection++;
 
-  } else if (currentIntersection == 14 || currentIntersection == 17) {
+  } else if (currentIntersection >= newPathSize && AStarActivated) {
     finalDance();
   } else {
     if (millis() - timeSinceStart <= 300) {
