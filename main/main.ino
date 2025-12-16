@@ -343,7 +343,7 @@ void loop() {
     leftTurnSensor = analogRead(sensorPins[0]);
     rightTurnSensor = analogRead(sensorPins[5]);
     if (leftTurnSensor <= sensorOffLine[0] && rightTurnSensor <= sensorOffLine[5]) {
-      delay(100);
+      delay(70);
       // We overshot the intersection, check for forward option
       hasForwardTurn = 0;
 
@@ -597,7 +597,7 @@ void turnRight() {
   analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
 
   delay(200);
-  while (analogRead(sensorPins[4]) < sensorOnLine[4])
+  while (analogRead(sensorPins[5]) < sensorOnLine[5])
     ;
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 255);
@@ -676,10 +676,10 @@ void noLineLogic() {
         if (DEBUG_TURNING) {
           Serial.println("I am turning left at noLine intersection");
         }
-        delay(100);
-        analogWrite(MOTORLEFT1, 90);    // HIGH = forward, change if reversed
+        delay(70);
+        analogWrite(MOTORLEFT1, 70);    // HIGH = forward, change if reversed
         analogWrite(MOTORLEFT2, 0);     // Speed (0-255)
-        analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+        analogWrite(MOTORRIGHT1, 220);  // HIGH = forward, change if reversed
         analogWrite(MOTORRIGHT2, 0);
         delay(900);
         currentOrientation = (currentOrientation + 1) % 4;
@@ -690,9 +690,9 @@ void noLineLogic() {
           Serial.println("I am turning right at noLine intersection");
         }
         delay(200);
-        analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
+        analogWrite(MOTORLEFT1, 220);  // HIGH = forward, change if reversed
         analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
-        analogWrite(MOTORRIGHT1, 90);  // HIGH = forward, change if reversed
+        analogWrite(MOTORRIGHT1, 70);  // HIGH = forward, change if reversed
         analogWrite(MOTORRIGHT2, 0);
         delay(900);
         currentOrientation = (currentOrientation - 1 + 4) % 4;
@@ -772,8 +772,8 @@ bool lineFinder() {
   Serial.println("In lineFinder()");
   //TURNING LEFT FIRST
   analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 150);   // Speed (0-255)
+  analogWrite(MOTORRIGHT1, 150);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
   float timeDelay = millis();
   while (millis() - timeDelay < 300) {
@@ -784,10 +784,10 @@ bool lineFinder() {
     }
   }
   //TURNING RIGHT AFTER
-  analogWrite(MOTORLEFT1, 200);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT1, 150);  // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
   analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 200);
+  analogWrite(MOTORRIGHT2, 150);
 
   timeDelay = millis();
   while (millis() - timeDelay < 600) {
@@ -799,8 +799,8 @@ bool lineFinder() {
   }
   //TURNING LEFT THIRD TIME
   analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
+  analogWrite(MOTORLEFT2, 150);   // Speed (0-255)
+  analogWrite(MOTORRIGHT1, 150);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 0);
   timeDelay = millis();
   while (millis() - timeDelay < 300) {
