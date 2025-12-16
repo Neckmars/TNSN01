@@ -31,9 +31,9 @@
 #define GRIPPERPIN 9
 #define VERTICALPIN 10
 
-#define GRIPPER_CLOSED_POS 20
-#define GRIPPER_OPEN_POS 90
-#define GRIPPER_DROPOFF_POS 35
+#define GRIPPER_CLOSED_POS 40
+#define GRIPPER_OPEN_POS 140
+#define GRIPPER_DROPOFF_POS 75
 #define VERTICAL_DOWN_POS 175
 #define VERTICAL_PRE_OPEN_POS 105
 #define VERTICAL_UP_POS 60
@@ -92,7 +92,7 @@ struct CalibrationValues {
   int sensorOffLine[6];
 };
 
-float Kp = 0.20;
+float Kp = 0.18;
 float Ki = 0.00024;
 float Kd = 10;
 
@@ -188,15 +188,15 @@ struct OrderResult {
   int8_t newOrientation;
 };
 
-int8_t countCylinders = 0;
+int8_t countCylinders = 2;
 
 // Intersection turns
-int8_t currentIntersection = 0;
+int8_t currentIntersection = 4;
 
 long delayForNoLine = 0;
 
 
-direction intersectionTurns[18] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
+direction intersectionTurns[15] = { LEFT, LEFT, LEFT, FORWARD, LEFT, LEFT /*NOLINEINTERSECION WONT BE READ*/ /*no line - keep going forward,*/, RIGHT, LEFT, FORWARD, LEFT /*Is now in final dead end*/, FORWARD, FORWARD, FORWARD, LEFT, LEFT };
 
 /*TODO: need to detect forward + left XOR right (-> T ->) crossing (would currently turn, and never go forward)
  Option 1:
@@ -226,7 +226,7 @@ void setup() {
   verticalServo.attach(VERTICALPIN);
   gripperServo.write(GRIPPER_DROPOFF_POS);
   verticalServo.write(VERTICAL_DRIVE_POS);
-  delay(200);
+  delay(2000);
   gripperServo.detach();
   verticalServo.detach();
 
@@ -311,7 +311,7 @@ void loop() {
 
   int leftTurnSensor = analogRead(sensorPins[0]);
   int rightTurnSensor = analogRead(sensorPins[5]);
-  
+
   if (DEBUG_TURN_SENSORS) {
     Serial.println("Left turn sensor: " + String(leftTurnSensor));
     Serial.println("Right turn sensor: " + String(rightTurnSensor));
@@ -359,7 +359,7 @@ void loop() {
         // Only enters when the number of cyllinders collected are 2 and Astar  hasn't been calculated yet
         if (countCylinders == 2 && !AStarActivated) {
           Serial.println("Calculating AStar");
-          
+
           // Astar_robot sets path (intersectionTurns) to new path
           ordersAndIndex result = Astar_robot(currentIntersection + 1, 0, currentOrientation);
 
@@ -481,14 +481,11 @@ void pickUpAndStore() {
   verticalServo.write(VERTICAL_DOWN_POS);
   delay(500);
   gripperServo.write(GRIPPER_CLOSED_POS);
-  //Serial.println("CLOSING GRIPPERS!");
   delay(500);
   verticalServo.write(VERTICAL_UP_POS);
-  //Serial.println("MOVING GRIPPERS UP!");
   delay(1200);
   gripperServo.write(GRIPPER_DROPOFF_POS);
   delay(200);
-  //Serial.println("OPENING GRIPPERS UP!");
   verticalServo.write(VERTICAL_DRIVE_POS);
   delay(200);
   gripperServo.detach();
@@ -597,13 +594,13 @@ void turnRight() {
   analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
 
   delay(200);
-  while (analogRead(sensorPins[4]) < sensorOnLine[4])
+  while (analogRead(sensorPins[5]) < sensorOnLine[5])
     ;
   analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORRIGHT2, 255);
   analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 255);  // Speed (0-255)
-  delay(50);
+  delay(100);
   forcePID(200);
 }
 
@@ -612,7 +609,6 @@ void turnLeft() {
   //encoderLeft = 0;
   currentOrientation = (currentOrientation + 1) % 4;
   Serial.println("Orientation changed to: " + String(currentOrientation));
-
   if (DEBUG_LINE_SENSORS) {
     for (int i = 0; i < 6; i++) {
       int raw = analogRead(sensorPins[i]);
@@ -637,7 +633,7 @@ void turnLeft() {
   analogWrite(MOTORRIGHT2, 255);
   analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
   analogWrite(MOTORLEFT2, 255);  // Speed (0-255)
-  delay(50);
+  delay(100);
   forcePID(200);
 }
 
@@ -652,387 +648,389 @@ void noLineLogic() {
   Serial.println("Start of noLineLogic()");
   float timeSinceStart = millis();
   bool foundLine = false;
-  driveMotors(210, 215);
-  while (readDistance() > 13 && !foundLine) {
-    if (millis() - timeSinceStart > 1500) {
-      if (lineFinder()) {
-        Serial.println("Found the line again!");
-        foundLine = true;
-        forcePID(350);
-        break;
-      } else {
-        driveMotors(170, 160);
-        delay(100);
-      }
-    }
-    for (int i = 0; i < 6; i++) {
-      if (analogRead(sensorPins[i]) > sensorOnLine[i]) {
-        foundLine = true;
-        break;
-      }
-    }
-    delay(10);
-  }
-  if (foundLine) {
-    Serial.println("Time since start of noLineLogic(): " + String(millis() - timeSinceStart));
-    forcePID(500);
-    return;
-  } else if (currentIntersection == specialIntersectionIndex) {
+  driveMotors(215, 205);
+  if (currentIntersection == specialIntersectionIndex) {
     switch (intersectionTurns[currentIntersection]) {
       case LEFT:
         if (DEBUG_TURNING) {
           Serial.println("I am turning left at noLine intersection");
         }
-        analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-        analogWrite(MOTORLEFT2, 150);   // Speed (0-255)
-        analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
+        delay(50);
+        analogWrite(MOTORLEFT1, 120);    // HIGH = forward, change if reversed
+        analogWrite(MOTORLEFT2, 0);     // Speed (0-255)
+        analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
         analogWrite(MOTORRIGHT2, 0);
-        delay(550);
+        delay(900);
         break;
       case RIGHT:
         if (DEBUG_TURNING) {
           Serial.println("I am turning right at noLine intersection");
         }
-        analogWrite(MOTORLEFT1, 200);  // HIGH = forward, change if reversed
+        delay(50);
+        analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
         analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
-        analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
-        analogWrite(MOTORRIGHT2, 150);
-        delay(600);
+        analogWrite(MOTORRIGHT1, 110);   // HIGH = forward, change if reversed
+        analogWrite(MOTORRIGHT2, 0);
+        delay(900);
         break;
     }
-    forcePID(400);
+    forcePID(100);
     currentIntersection++;
-
-  } else if (currentIntersection >= newPathSize && AStarActivated) {
-    finalDance();
   } else {
-    if (millis() - timeSinceStart <= 300) {
-      uTurn();
+    while (readDistance() > 13 && !foundLine) {
+      if (millis() - timeSinceStart > 1300) {
+        if (lineFinder()) {
+          Serial.println("Found the line again!");
+          foundLine = true;
+          forcePID(200);
+          break;
+        } else {
+          driveMotors(170, 160);
+          delay(100);
+        }
+      }
+      for (int i = 0; i < 6; i++) {
+        if (analogRead(sensorPins[i]) > sensorOnLine[i]) {
+          foundLine = true;
+          break;
+        }
+      }
+      delay(10);
+    }
+    if (foundLine) {
+      Serial.println("Time since start of noLineLogic(): " + String(millis() - timeSinceStart));
+      forcePID(200);
+      return;
+    } else if (currentIntersection >= newPathSize && AStarActivated) {
+      finalDance();
+    } else {
+      if (millis() - timeSinceStart <= 300) {
+        uTurn();
+      }
     }
   }
 }
+  void uTurn() {
+    currentOrientation = (currentOrientation + 2) % 4;
+    if (DEBUG_LINE_SENSORS) {
+      for (int i = 0; i < 6; i++) {
+        int raw = analogRead(sensorPins[i]);
+        if (DEBUG_LINE_SENSORS) {
+          Serial.print("Raw pin ");
+          Serial.print(i);
+          Serial.print(": ");
+          Serial.println(raw);
+        }
+      }
+    }
+    Serial.println("I am doing a u-turn!!");
+    analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 0);
 
-void uTurn() {
-  currentOrientation = (currentOrientation + 2) % 4;
-  if (DEBUG_LINE_SENSORS) {
+    delay(200);
+    while (analogRead(sensorPins[0]) < sensorOnLine[0])
+      ;
+
+    analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 255);
+    delay(100);
+    forcePID(200);
+  }
+
+  bool lineFinder() {
+    Serial.println("In lineFinder()");
+    //TURNING LEFT FIRST
+    analogWrite(MOTORLEFT1, 200);  // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 200);
+    float timeDelay = millis();
+    while (millis() - timeDelay < 600) {
+      for (int i = 0; i < 6; i++) {
+        if (analogRead(sensorPins[i]) > sensorOnLine[i]) {
+          return true;
+        }
+      }
+    }
+    //TURNING RIGHT AFTER
+    analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 0);
+    timeDelay = millis();
+    while (millis() - timeDelay < 1200) {
+      for (int i = 0; i < 6; i++) {
+        if (analogRead(sensorPins[i]) > sensorOnLine[i]) {
+          return true;
+        }
+      }
+    }
+    //TURNING LEFT THIRD TIME
+    analogWrite(MOTORLEFT1, 200);  // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 200);
+    timeDelay = millis();
+    while (millis() - timeDelay < 600) {
+      for (int i = 0; i < 6; i++) {
+        if (analogRead(sensorPins[i]) > sensorOnLine[i]) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void finalDance() {
+    Serial.println("I am turning left!");
+    analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 255);
+    delay(2000);
+    driveMotors(0, 0);
+
+    gripperServo.attach(GRIPPERPIN);
+    verticalServo.attach(VERTICALPIN);
+    verticalServo.write(VERTICAL_PRE_OPEN_POS);
+    //Serial.println("Vertical down position!");
+    gripperServo.write(GRIPPER_OPEN_POS);
+    delay(200);
+    gripperServo.write(GRIPPER_CLOSED_POS);
+    delay(300);
+    gripperServo.write(GRIPPER_OPEN_POS);
+    delay(200);
+    gripperServo.write(GRIPPER_CLOSED_POS);
+    delay(300);
+    gripperServo.write(GRIPPER_OPEN_POS);
+    delay(200);
+    gripperServo.write(GRIPPER_CLOSED_POS);
+    delay(300);
+    gripperServo.write(GRIPPER_OPEN_POS);
+    delay(200);
+    gripperServo.write(GRIPPER_CLOSED_POS);
+    delay(300);
+    verticalServo.write(VERTICAL_DOWN_POS);
+    delay(500);
+    verticalServo.write(VERTICAL_UP_POS);
+    delay(500);
+    gripperServo.detach();
+    verticalServo.detach();
+    analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 255);
+    delay(2000);
+    driveMotors(0, 0);
+    while (1)
+      ;
+  }
+
+  void calibrateSensors() {
+    int sensorReading = 0;
+    int maxSensorValues[6] = { 0, 0, 0, 0, 0, 0 };
+    int minSensorValues[6] = { 2000, 2000, 2000, 2000, 2000, 2000 };
+    analogWrite(MOTORLEFT1, 80);  // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 0);   // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 80);
+    for (int i = 0; i < 700; i++) {
+      for (int j = 0; j < 6; j++) {
+        sensorReading = analogRead(sensorPins[j]);
+        if (sensorReading > maxSensorValues[j]) {
+          maxSensorValues[j] = sensorReading;
+        }
+        if (sensorReading < minSensorValues[j]) {
+          minSensorValues[j] = sensorReading;
+        }
+      }
+    }
+    analogWrite(MOTORLEFT1, 0);    // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 80);   // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 80);  // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 0);
+
+    for (int i = 0; i < 1400; i++) {
+      for (int j = 0; j < 6; j++) {
+        sensorReading = analogRead(sensorPins[j]);
+        if (sensorReading > maxSensorValues[j]) {
+          maxSensorValues[j] = sensorReading;
+        }
+        if (sensorReading < minSensorValues[j]) {
+          minSensorValues[j] = sensorReading;
+        }
+      }
+    }
+
+    analogWrite(MOTORLEFT1, 80);  // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 0);   // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 80);
+
+    for (int i = 0; i < 1400; i++) {
+      for (int j = 0; j < 6; j++) {
+        sensorReading = analogRead(sensorPins[j]);
+        if (sensorReading > maxSensorValues[j]) {
+          maxSensorValues[j] = sensorReading;
+        }
+        if (sensorReading < minSensorValues[j]) {
+          minSensorValues[j] = sensorReading;
+        }
+      }
+    }
+
+    analogWrite(MOTORLEFT1, 0);    // HIGH = forward, change if reversed
+    analogWrite(MOTORLEFT2, 80);   // Speed (0-255)
+    analogWrite(MOTORRIGHT1, 80);  // HIGH = forward, change if reversed
+    analogWrite(MOTORRIGHT2, 0);
+
+    for (int i = 0; i < 700; i++) {
+      for (int j = 0; j < 6; j++) {
+        sensorReading = analogRead(sensorPins[j]);
+        if (sensorReading > maxSensorValues[j]) {
+          maxSensorValues[j] = sensorReading;
+        }
+        if (sensorReading < minSensorValues[j]) {
+          minSensorValues[j] = sensorReading;
+        }
+      }
+    }
+    driveMotors(0, 0);
+
     for (int i = 0; i < 6; i++) {
-      int raw = analogRead(sensorPins[i]);
-      if (DEBUG_LINE_SENSORS) {
-        Serial.print("Raw pin ");
-        Serial.print(i);
-        Serial.print(": ");
-        Serial.println(raw);
-      }
+      int sensorDiff = maxSensorValues[i];
+      sensorOnLine[i] = sensorDiff * ON_LINE_FACTOR;
+      sensorAlmostOnLine[i] = sensorDiff * ALMOST_ON_LINE_FACTOR;
+      sensorOffLine[i] = sensorDiff * OFF_LINE_FACTOR;
+
+      Serial.print(" Raw values pin " + String(i) + ": " + String(maxSensorValues[i]));
+      Serial.print(" OnLine values pin " + String(i) + ": " + String(sensorOnLine[i]));
+      Serial.print(" AlmostOnLine values pin " + String(i) + ": " + String(sensorAlmostOnLine[i]));
+      Serial.println(" OffLine values pin " + String(i) + ": " + String(sensorOffLine[i]));
     }
+
+    CalibrationValues calib;
+
+    memcpy(calib.sensorOnLine, sensorOnLine, sizeof(sensorOnLine));
+    memcpy(calib.sensorAlmostOnLine, sensorAlmostOnLine, sizeof(sensorAlmostOnLine));
+    memcpy(calib.sensorOffLine, sensorOffLine, sizeof(sensorOffLine));
+
+    EEPROM.put(0, calib);
   }
-  Serial.println("I am doing a u-turn!!");
-  analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 0);
 
-  delay(200);
-  while (analogRead(sensorPins[0]) < sensorOnLine[0])
-    ;
-
-  analogWrite(MOTORLEFT1, 255);   // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 255);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 255);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 255);
-  delay(100);
-  forcePID(200);
-}
-
-bool lineFinder() {
-  Serial.println("In lineFinder()");
-  //TURNING LEFT FIRST
-  analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 0);
-  float timeDelay = millis();
-  while (millis() - timeDelay < 600) {
-    for (int i = 0; i < 6; i++) {
-      if (analogRead(sensorPins[i]) > sensorOnLine[i]) {
-        return true;
-      }
-    }
-  }
-  //TURNING RIGHT AFTER
-  analogWrite(MOTORLEFT1, 200);  // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 200);
-  timeDelay = millis();
-  while (millis() - timeDelay < 1200) {
-    for (int i = 0; i < 6; i++) {
-      if (analogRead(sensorPins[i]) > sensorOnLine[i]) {
-        return true;
-      }
-    }
-  }
-  //TURNING LEFT THIRD TIME
-  analogWrite(MOTORLEFT1, 0);     // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 200);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 200);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 0);
-  timeDelay = millis();
-  while (millis() - timeDelay < 600) {
-    for (int i = 0; i < 6; i++) {
-      if (analogRead(sensorPins[i]) > sensorOnLine[i]) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-void finalDance() {
-  Serial.println("I am turning left!");
-  analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 255);
-  delay(2000);
-  driveMotors(0, 0);
-
-  gripperServo.attach(GRIPPERPIN);
-  verticalServo.attach(VERTICALPIN);
-  verticalServo.write(VERTICAL_PRE_OPEN_POS);
-  //Serial.println("Vertical down position!");
-  gripperServo.write(GRIPPER_OPEN_POS);
-  delay(200);
-  gripperServo.write(GRIPPER_CLOSED_POS);
-  delay(300);
-  gripperServo.write(GRIPPER_OPEN_POS);
-  delay(200);
-  gripperServo.write(GRIPPER_CLOSED_POS);
-  delay(300);
-  gripperServo.write(GRIPPER_OPEN_POS);
-  delay(200);
-  gripperServo.write(GRIPPER_CLOSED_POS);
-  delay(300);
-  gripperServo.write(GRIPPER_OPEN_POS);
-  delay(200);
-  gripperServo.write(GRIPPER_CLOSED_POS);
-  delay(300);
-  verticalServo.write(VERTICAL_DOWN_POS);
-  delay(500);
-  verticalServo.write(VERTICAL_UP_POS);
-  delay(500);
-  gripperServo.detach();
-  verticalServo.detach();
-  analogWrite(MOTORLEFT1, 255);  // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);    // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 0);   // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 255);
-  delay(2000);
-  driveMotors(0, 0);
-  while (1)
-    ;
-}
-
-void calibrateSensors() {
-  int sensorReading = 0;
-  int maxSensorValues[6] = { 0, 0, 0, 0, 0, 0 };
-  int minSensorValues[6] = { 2000, 2000, 2000, 2000, 2000, 2000 };
-  analogWrite(MOTORLEFT1, 80);  // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 80);
-  for (int i = 0; i < 700; i++) {
-    for (int j = 0; j < 6; j++) {
-      sensorReading = analogRead(sensorPins[j]);
-      if (sensorReading > maxSensorValues[j]) {
-        maxSensorValues[j] = sensorReading;
-      }
-      if (sensorReading < minSensorValues[j]) {
-        minSensorValues[j] = sensorReading;
-      }
-    }
-  }
-  analogWrite(MOTORLEFT1, 0);    // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 80);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 80);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 0);
-
-  for (int i = 0; i < 1400; i++) {
-    for (int j = 0; j < 6; j++) {
-      sensorReading = analogRead(sensorPins[j]);
-      if (sensorReading > maxSensorValues[j]) {
-        maxSensorValues[j] = sensorReading;
-      }
-      if (sensorReading < minSensorValues[j]) {
-        minSensorValues[j] = sensorReading;
+  // A star functions
+  void resetMap() {
+    for (int j = 0; j < 7; j++) {
+      for (int i = 0; i < 7; i++) {
+        MapNodes[j][i].resetParams();
       }
     }
   }
 
-  analogWrite(MOTORLEFT1, 80);  // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 0);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 0);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 80);
+  void createMap() {
+    // Order: North, South, West, East
+    // Generate first line
+    MapNodes[0][0].SetParams(0, 0, 0, 0, 0, 1);
+    MapNodes[0][1].SetParams(1, 0, 1, 0, 1, 0);
+    MapNodes[0][2].SetParams(2, 0, 1, 0, 0, 1);
+    MapNodes[0][3].SetParams(3, 0, 0, 0, 1, 0);
+    MapNodes[0][4].SetParams(4, 0, 1, 0, 0, 1);
+    MapNodes[0][5].SetParams(5, 0, 0, 0, 1, 1);
+    MapNodes[0][6].SetParams(6, 0, 1, 0, 1, 0);
 
-  for (int i = 0; i < 1400; i++) {
-    for (int j = 0; j < 6; j++) {
-      sensorReading = analogRead(sensorPins[j]);
-      if (sensorReading > maxSensorValues[j]) {
-        maxSensorValues[j] = sensorReading;
-      }
-      if (sensorReading < minSensorValues[j]) {
-        minSensorValues[j] = sensorReading;
-      }
-    }
+    // Generate second line
+    MapNodes[1][0].SetParams(0, 1, 1, 0, 0, 1);
+    MapNodes[1][1].SetParams(1, 1, 1, 1, 1, 1);
+    MapNodes[1][2].SetParams(2, 1, 0, 1, 1, 1);
+    MapNodes[1][3].SetParams(3, 1, 1, 0, 1, 0);
+    MapNodes[1][4].SetParams(4, 1, 0, 1, 0, 1);
+    MapNodes[1][5].SetParams(5, 1, 1, 0, 1, 0);
+    MapNodes[1][6].SetParams(6, 1, 1, 1, 0, 0);
+
+    // Generate third line
+    MapNodes[2][0].SetParams(0, 2, 1, 1, 0, 0);
+    MapNodes[2][1].SetParams(1, 2, 1, 1, 0, 0);
+    MapNodes[2][2].SetParams(2, 2, 0, 0, 0, 1);
+    MapNodes[2][3].SetParams(3, 2, 0, 1, 1, 1);
+    MapNodes[2][4].SetParams(4, 2, 1, 0, 1, 1);
+    MapNodes[2][5].SetParams(5, 2, 0, 1, 1, 0);
+    MapNodes[2][6].SetParams(6, 2, 1, 1, 0, 0);
+
+    // Generate fourth line
+    MapNodes[3][0].SetParams(0, 3, 1, 1, 0, 0);
+    MapNodes[3][1].SetParams(1, 3, 1, 1, 0, 0);
+    MapNodes[3][2].SetParams(2, 3, 1, 0, 0, 1);
+    MapNodes[3][3].SetParams(3, 3, 0, 0, 1, 1);
+    MapNodes[3][4].SetParams(4, 3, 1, 1, 1, 0);
+    MapNodes[3][5].SetParams(5, 3, 1, 0, 0, 1);
+    MapNodes[3][6].SetParams(6, 3, 0, 1, 1, 0);
+
+    // Generate fifth line
+    MapNodes[4][0].SetParams(0, 4, 1, 1, 0, 0);
+    MapNodes[4][1].SetParams(1, 4, 0, 1, 0, 1);
+    MapNodes[4][2].SetParams(2, 4, 0, 1, 1, 0);
+    MapNodes[4][3].SetParams(3, 4, 1, 0, 0, 1);
+    MapNodes[4][4].SetParams(4, 4, 1, 1, 1, 0);
+    MapNodes[4][5].SetParams(5, 4, 0, 1, 0, 1);
+    MapNodes[4][6].SetParams(6, 4, 0, 0, 1, 0);
+
+    // Generate sixth line
+    MapNodes[5][0].SetParams(0, 5, 1, 1, 0, 0);
+    MapNodes[5][1].SetParams(1, 5, 1, 0, 0, 1);
+    MapNodes[5][2].SetParams(2, 5, 1, 0, 1, 0);
+    MapNodes[5][3].SetParams(3, 5, 1, 1, 0, 0);
+    MapNodes[5][4].SetParams(4, 5, 0, 1, 0, 1);
+    MapNodes[5][5].SetParams(5, 5, 0, 0, 1, 1);
+    MapNodes[5][6].SetParams(6, 5, 1, 0, 1, 0);
+
+    // Generate seventh line
+    MapNodes[6][0].SetParams(0, 6, 0, 1, 0, 1);
+    MapNodes[6][1].SetParams(1, 6, 0, 1, 1, 0);
+    MapNodes[6][2].SetParams(2, 6, 0, 1, 0, 1);
+    MapNodes[6][3].SetParams(3, 6, 0, 1, 1, 1);
+    MapNodes[6][4].SetParams(4, 6, 0, 0, 1, 0);
+    MapNodes[6][5].SetParams(5, 6, 0, 0, 0, 1);
+    MapNodes[6][6].SetParams(6, 6, 0, 1, 1, 0);
+
+    return;
   }
 
-  analogWrite(MOTORLEFT1, 0);    // HIGH = forward, change if reversed
-  analogWrite(MOTORLEFT2, 80);   // Speed (0-255)
-  analogWrite(MOTORRIGHT1, 80);  // HIGH = forward, change if reversed
-  analogWrite(MOTORRIGHT2, 0);
-
-  for (int i = 0; i < 700; i++) {
-    for (int j = 0; j < 6; j++) {
-      sensorReading = analogRead(sensorPins[j]);
-      if (sensorReading > maxSensorValues[j]) {
-        maxSensorValues[j] = sensorReading;
-      }
-      if (sensorReading < minSensorValues[j]) {
-        minSensorValues[j] = sensorReading;
-      }
-    }
-  }
-  driveMotors(0, 0);
-
-  for (int i = 0; i < 6; i++) {
-    int sensorDiff = maxSensorValues[i];
-    sensorOnLine[i] = sensorDiff * ON_LINE_FACTOR;
-    sensorAlmostOnLine[i] = sensorDiff * ALMOST_ON_LINE_FACTOR;
-    sensorOffLine[i] = sensorDiff * OFF_LINE_FACTOR;
-
-    Serial.print(" Raw values pin " + String(i) + ": " + String(maxSensorValues[i]));
-    Serial.print(" OnLine values pin " + String(i) + ": " + String(sensorOnLine[i]));
-    Serial.print(" AlmostOnLine values pin " + String(i) + ": " + String(sensorAlmostOnLine[i]));
-    Serial.println(" OffLine values pin " + String(i) + ": " + String(sensorOffLine[i]));
+  int ManhattanDistance(int x1, int y1, int x2, int y2) {
+    return (abs(x1 - x2) + abs(y1 - y2));
   }
 
-  CalibrationValues calib;
+  int GetNeighbors(Node * node, Node * out[]) {
+    int count = 0;
 
-  memcpy(calib.sensorOnLine, sensorOnLine, sizeof(sensorOnLine));
-  memcpy(calib.sensorAlmostOnLine, sensorAlmostOnLine, sizeof(sensorAlmostOnLine));
-  memcpy(calib.sensorOffLine, sensorOffLine, sizeof(sensorOffLine));
+    if (node->northLimit) out[count++] = &MapNodes[node->y + 1][node->x];
+    if (node->southLimit) out[count++] = &MapNodes[node->y - 1][node->x];
+    if (node->westLimit) out[count++] = &MapNodes[node->y][node->x - 1];
+    if (node->eastLimit) out[count++] = &MapNodes[node->y][node->x + 1];
 
-  EEPROM.put(0, calib);
-}
-
-// A star functions
-void resetMap() {
-  for (int j = 0; j < 7; j++) {
-    for (int i = 0; i < 7; i++) {
-      MapNodes[j][i].resetParams();
-    }
+    return count;
   }
-}
 
-void createMap() {
-  // Order: North, South, West, East
-  // Generate first line
-  MapNodes[0][0].SetParams(0, 0, 0, 0, 0, 1);
-  MapNodes[0][1].SetParams(1, 0, 1, 0, 1, 0);
-  MapNodes[0][2].SetParams(2, 0, 1, 0, 0, 1);
-  MapNodes[0][3].SetParams(3, 0, 0, 0, 1, 0);
-  MapNodes[0][4].SetParams(4, 0, 1, 0, 0, 1);
-  MapNodes[0][5].SetParams(5, 0, 0, 0, 1, 1);
-  MapNodes[0][6].SetParams(6, 0, 1, 0, 1, 0);
+  int AStar_Algorithm(Node * StartNode, Node * GoalNode, Node * path[]) {
+    Node* open[MAX_NODES];
+    Node* closed[MAX_NODES];
+    int openSize = 0;
+    int closedSize = 0;
 
-  // Generate second line
-  MapNodes[1][0].SetParams(0, 1, 1, 0, 0, 1);
-  MapNodes[1][1].SetParams(1, 1, 1, 1, 1, 1);
-  MapNodes[1][2].SetParams(2, 1, 0, 1, 1, 1);
-  MapNodes[1][3].SetParams(3, 1, 1, 0, 1, 0);
-  MapNodes[1][4].SetParams(4, 1, 0, 1, 0, 1);
-  MapNodes[1][5].SetParams(5, 1, 1, 0, 1, 0);
-  MapNodes[1][6].SetParams(6, 1, 1, 1, 0, 0);
+    resetMap();
+    Node* start = StartNode;
 
-  // Generate third line
-  MapNodes[2][0].SetParams(0, 2, 1, 1, 0, 0);
-  MapNodes[2][1].SetParams(1, 2, 1, 1, 0, 0);
-  MapNodes[2][2].SetParams(2, 2, 0, 0, 0, 1);
-  MapNodes[2][3].SetParams(3, 2, 0, 1, 1, 1);
-  MapNodes[2][4].SetParams(4, 2, 1, 0, 1, 1);
-  MapNodes[2][5].SetParams(5, 2, 0, 1, 1, 0);
-  MapNodes[2][6].SetParams(6, 2, 1, 1, 0, 0);
+    start->g = 0;
+    start->h = ManhattanDistance(StartNode->x, StartNode->y, GoalNode->x, GoalNode->y);
+    start->parent = nullptr;
+    open[openSize++] = start;
 
-  // Generate fourth line
-  MapNodes[3][0].SetParams(0, 3, 1, 1, 0, 0);
-  MapNodes[3][1].SetParams(1, 3, 1, 1, 0, 0);
-  MapNodes[3][2].SetParams(2, 3, 1, 0, 0, 1);
-  MapNodes[3][3].SetParams(3, 3, 0, 0, 1, 1);
-  MapNodes[3][4].SetParams(4, 3, 1, 1, 1, 0);
-  MapNodes[3][5].SetParams(5, 3, 1, 0, 0, 1);
-  MapNodes[3][6].SetParams(6, 3, 0, 1, 1, 0);
-
-  // Generate fifth line
-  MapNodes[4][0].SetParams(0, 4, 1, 1, 0, 0);
-  MapNodes[4][1].SetParams(1, 4, 0, 1, 0, 1);
-  MapNodes[4][2].SetParams(2, 4, 0, 1, 1, 0);
-  MapNodes[4][3].SetParams(3, 4, 1, 0, 0, 1);
-  MapNodes[4][4].SetParams(4, 4, 1, 1, 1, 0);
-  MapNodes[4][5].SetParams(5, 4, 0, 1, 0, 1);
-  MapNodes[4][6].SetParams(6, 4, 0, 0, 1, 0);
-
-  // Generate sixth line
-  MapNodes[5][0].SetParams(0, 5, 1, 1, 0, 0);
-  MapNodes[5][1].SetParams(1, 5, 1, 0, 0, 1);
-  MapNodes[5][2].SetParams(2, 5, 1, 0, 1, 0);
-  MapNodes[5][3].SetParams(3, 5, 1, 1, 0, 0);
-  MapNodes[5][4].SetParams(4, 5, 0, 1, 0, 1);
-  MapNodes[5][5].SetParams(5, 5, 0, 0, 1, 1);
-  MapNodes[5][6].SetParams(6, 5, 1, 0, 1, 0);
-
-  // Generate seventh line
-  MapNodes[6][0].SetParams(0, 6, 0, 1, 0, 1);
-  MapNodes[6][1].SetParams(1, 6, 0, 1, 1, 0);
-  MapNodes[6][2].SetParams(2, 6, 0, 1, 0, 1);
-  MapNodes[6][3].SetParams(3, 6, 0, 1, 1, 1);
-  MapNodes[6][4].SetParams(4, 6, 0, 0, 1, 0);
-  MapNodes[6][5].SetParams(5, 6, 0, 0, 0, 1);
-  MapNodes[6][6].SetParams(6, 6, 0, 1, 1, 0);
-
-  return;
-}
-
-int ManhattanDistance(int x1, int y1, int x2, int y2) {
-  return (abs(x1 - x2) + abs(y1 - y2));
-}
-
-int GetNeighbors(Node* node, Node* out[]) {
-  int count = 0;
-
-  if (node->northLimit) out[count++] = &MapNodes[node->y + 1][node->x];
-  if (node->southLimit) out[count++] = &MapNodes[node->y - 1][node->x];
-  if (node->westLimit) out[count++] = &MapNodes[node->y][node->x - 1];
-  if (node->eastLimit) out[count++] = &MapNodes[node->y][node->x + 1];
-
-  return count;
-}
-
-int AStar_Algorithm(Node* StartNode, Node* GoalNode, Node* path[]) {
-  Node* open[MAX_NODES];
-  Node* closed[MAX_NODES];
-  int openSize = 0;
-  int closedSize = 0;
-
-  resetMap();
-  Node* start = StartNode;
-
-  start->g = 0;
-  start->h = ManhattanDistance(StartNode->x, StartNode->y, GoalNode->x, GoalNode->y);
-  start->parent = nullptr;
-  open[openSize++] = start;
-
-  // Problem found, it's related to how the push_back works
-  // Is not saving Node* star and that leads to different values when tested
-  /*Serial.print("h: ");
+    // Problem found, it's related to how the push_back works
+    // Is not saving Node* star and that leads to different values when tested
+    /*Serial.print("h: ");
     Serial.print(start->h);
     Serial.print(" y: ");
     Serial.println(start->y);
@@ -1045,239 +1043,239 @@ int AStar_Algorithm(Node* StartNode, Node* GoalNode, Node* path[]) {
     Serial.println(open[1]->x);*/
 
 
-  while (openSize > 0) {
-    // Verify and choose the lowest f
-    Node* current = open[0];
-    int currentIndex = 0;
-    /*
+    while (openSize > 0) {
+      // Verify and choose the lowest f
+      Node* current = open[0];
+      int currentIndex = 0;
+      /*
     Serial.print("x: ");
     Serial.print(current->x);
     Serial.print(" y: ");
     Serial.println(current->y);
 */
-    for (int i = 1; i < openSize; i++) {
-      if (open[i]->f() < current->f()) {
-        current = open[i];
-        currentIndex = i;
-      }
-    }
-
-    // In case we are in the goal, find the parents of the nodes until get to the start node
-    if (current->x == GoalNode->x && current->y == GoalNode->y) {
-      int length = 0;
-
-      while (current != nullptr) {
-        path[length++] = current;
-        current = current->parent;
-        if (current) {
-          Serial.print("x: ");
-          Serial.print(current->x);
-          Serial.print(" y: ");
-          Serial.println(current->y);
+      for (int i = 1; i < openSize; i++) {
+        if (open[i]->f() < current->f()) {
+          current = open[i];
+          currentIndex = i;
         }
       }
 
-      // Reverse the path to obtain the right order
-      for (int i = 0; i < length / 2; i++) {
-        Node* tmp = path[i];
-        path[i] = path[length - 1 - i];
-        path[length - 1 - i] = tmp;
-      }
+      // In case we are in the goal, find the parents of the nodes until get to the start node
+      if (current->x == GoalNode->x && current->y == GoalNode->y) {
+        int length = 0;
 
-      return length;
-    }
-
-    // Move the current node to closed
-    for (int i = currentIndex; i < openSize - 1; i++) open[i] = open[i + 1];
-    openSize--;
-
-    closed[closedSize++] = current;
-
-    // Identify neighbors and explore them
-    Node* neighbors[4];
-    int nCount = GetNeighbors(current, neighbors);
-
-    for (int i = 0; i < nCount; i++) {
-      Node* neighbor = neighbors[i];
-      bool skip = false;
-      bool inOpen = false;
-
-      // New current cost
-      int gNew = current->g + 1;
-
-      // Verify if the node is in the open array
-      for (int j = 0; j < openSize; j++) {
-        // If the current cost is greater or equal than the cost that Node already has,
-        // move to the next neighbor
-        if (open[j] == neighbor) {
-          inOpen = true;
-          // Update neighbor only if it finds a better path
-          if (gNew < neighbor->g) {
-            neighbor->g = gNew;
-            neighbor->parent = current;
+        while (current != nullptr) {
+          path[length++] = current;
+          current = current->parent;
+          if (current) {
+            Serial.print("x: ");
+            Serial.print(current->x);
+            Serial.print(" y: ");
+            Serial.println(current->y);
           }
-          break;
+        }
+
+        // Reverse the path to obtain the right order
+        for (int i = 0; i < length / 2; i++) {
+          Node* tmp = path[i];
+          path[i] = path[length - 1 - i];
+          path[length - 1 - i] = tmp;
+        }
+
+        return length;
+      }
+
+      // Move the current node to closed
+      for (int i = currentIndex; i < openSize - 1; i++) open[i] = open[i + 1];
+      openSize--;
+
+      closed[closedSize++] = current;
+
+      // Identify neighbors and explore them
+      Node* neighbors[4];
+      int nCount = GetNeighbors(current, neighbors);
+
+      for (int i = 0; i < nCount; i++) {
+        Node* neighbor = neighbors[i];
+        bool skip = false;
+        bool inOpen = false;
+
+        // New current cost
+        int gNew = current->g + 1;
+
+        // Verify if the node is in the open array
+        for (int j = 0; j < openSize; j++) {
+          // If the current cost is greater or equal than the cost that Node already has,
+          // move to the next neighbor
+          if (open[j] == neighbor) {
+            inOpen = true;
+            // Update neighbor only if it finds a better path
+            if (gNew < neighbor->g) {
+              neighbor->g = gNew;
+              neighbor->parent = current;
+            }
+            break;
+          }
+        }
+
+        // Verify if the node is in the closed vector
+        for (int j = 0; j < closedSize; j++) {
+          // If the current cost is greater or equal than the cost that Node already has,
+          // move to the next neighbor
+          if (closed[j] == neighbor) {
+            skip = true;
+            // break;
+          }
+        }
+        if (skip) continue;
+
+        // In case the neighbor is neither in the open nor the closed vector,
+        // add it to the open vector
+        if (!inOpen) {
+          neighbor->g = gNew;
+          neighbor->h = ManhattanDistance(neighbor->x, neighbor->y, GoalNode->x, GoalNode->y);
+          neighbor->parent = current;
+          open[openSize++] = neighbor;
         }
       }
+    }
+    return 0;
+  }
 
-      // Verify if the node is in the closed vector
-      for (int j = 0; j < closedSize; j++) {
-        // If the current cost is greater or equal than the cost that Node already has,
-        // move to the next neighbor
-        if (closed[j] == neighbor) {
-          skip = true;
-          // break;
-        }
-      }
-      if (skip) continue;
+  // Functions to translate the Node Vector into positions and orders
+  importantVectors translateNodes2Orders(Node * Path[], int pathSize, int orientation) {
+    importantVectors result;
+    result.size = 0;
 
-      // In case the neighbor is neither in the open nor the closed vector,
-      // add it to the open vector
-      if (!inOpen) {
-        neighbor->g = gNew;
-        neighbor->h = ManhattanDistance(neighbor->x, neighbor->y, GoalNode->x, GoalNode->y);
-        neighbor->parent = current;
-        open[openSize++] = neighbor;
+    int newOrientation = orientation;
+
+    for (int i = 0; i < pathSize - 1; i++) {
+      OrderResult r = getNextOrder(Path[i], Path[i + 1], newOrientation);
+      newOrientation = r.newOrientation;
+
+      int connections =
+        Path[i]->northLimit + Path[i]->southLimit + Path[i]->eastLimit + Path[i]->westLimit;
+
+      if (connections > 2) {
+        result.nodes[result.size] = Path[i];
+        result.orders[result.size] = r.order;
+
+        Serial.print("result.nodes: ");
+        Serial.print("x: ");
+        Serial.print(result.nodes[result.size]->x);
+        Serial.print(" y: ");
+        Serial.println(result.nodes[result.size]->y);
+
+        Serial.print("result.orders: ");
+        Serial.println(result.orders[result.size]);
+
+
+        result.size++;
       }
     }
+
+    return result;
   }
-  return 0;
-}
 
-// Functions to translate the Node Vector into positions and orders
-importantVectors translateNodes2Orders(Node* Path[], int pathSize, int orientation) {
-  importantVectors result;
-  result.size = 0;
+  OrderResult getNextOrder(Node * currentNode, Node * nextNode, int originalOrientation) {
+    int change_y = nextNode->y - currentNode->y;
+    int change_x = nextNode->x - currentNode->x;
+    int targetOrientation;
+    if (change_y == 1) targetOrientation = NORTH;
+    else if (change_y == -1) targetOrientation = SOUTH;
+    else if (change_x == 1) targetOrientation = EAST;
+    else if (change_x == -1) targetOrientation = WEST;
+    int diff = (originalOrientation - targetOrientation + 4) % 4;
+    OrderResult result;
 
-  int newOrientation = orientation;
+    switch (diff) {
+      case 0:
+        result.order = FORWARD;
+        break;
+      case 1:
+        result.order = RIGHT;
+        break;
+      case 3:
+        result.order = LEFT;
+        break;
 
-  for (int i = 0; i < pathSize - 1; i++) {
-    OrderResult r = getNextOrder(Path[i], Path[i + 1], newOrientation);
-    newOrientation = r.newOrientation;
-
-    int connections =
-      Path[i]->northLimit + Path[i]->southLimit + Path[i]->eastLimit + Path[i]->westLimit;
-
-    if (connections > 2) {
-      result.nodes[result.size] = Path[i];
-      result.orders[result.size] = r.order;
-
-      Serial.print("result.nodes: ");
-      Serial.print("x: ");
-      Serial.print(result.nodes[result.size]->x);
-      Serial.print(" y: ");
-      Serial.println(result.nodes[result.size]->y);
-
-      Serial.print("result.orders: ");
-      Serial.println(result.orders[result.size]);
-
-
-      result.size++;
+      case 2:
+        result.order = BACKWARD;
+        break;
+      default:
+        Serial.println("Something happend in the order decision. Breaking.");
+        break;
     }
+    result.newOrientation = targetOrientation;
+    return result;
   }
 
-  return result;
-}
+  ordersAndIndex Astar_robot(int currentIntersection, int distanceFromIntersection, int orientation) {
+    // define 2 paths
+    // path 1: from the last node to the goal node (distance = path + distanceFromIntersaction)
+    // path 2: from the following node, to the (distance = path + (distanceBetweenIntersactions - distanceFromIntersaction))
+    // choose the path with the lowest distance
 
-OrderResult getNextOrder(Node* currentNode, Node* nextNode, int originalOrientation) {
-  int change_y = nextNode->y - currentNode->y;
-  int change_x = nextNode->x - currentNode->x;
-  int targetOrientation;
-  if (change_y == 1) targetOrientation = NORTH;
-  else if (change_y == -1) targetOrientation = SOUTH;
-  else if (change_x == 1) targetOrientation = EAST;
-  else if (change_x == -1) targetOrientation = WEST;
-  int diff = (originalOrientation - targetOrientation + 4) % 4;
-  OrderResult result;
+    // specialNode will tell us if the robot will cross the node without dark line. If it doesn't cross that node, or if it does it and the order is to go forward, the number will stay at -1
+    // Otherwise the number will corespond to the number of the order.
 
-  switch (diff) {
-    case 0:
-      result.order = FORWARD;
-      break;
-    case 1:
-      result.order = RIGHT;
-      break;
-    case 3:
-      result.order = LEFT;
-      break;
+    int specialNode = -1;
+    Node* path1[MAX_NODES];
+    //Node* path2[MAX_NODES];
+    Serial.println("Path 1 calculation");
+    int size1 = AStar_Algorithm(intersectionNodes[currentIntersection], finalCylinderNode, path1);
+    //Serial.println("Path 2 calculation");
+    //int size2 = AStar_Algorithm(intersectionNodes[currentIntersection + 1], finalCylinderNode, path2);
 
-    case 2:
-      result.order = BACKWARD;
-      break;
-    default:
-      Serial.println("Something happend in the order decision. Breaking.");
-      break;
-  }
-  result.newOrientation = targetOrientation;
-  return result;
-}
+    importantVectors myVectors;
 
-ordersAndIndex Astar_robot(int currentIntersection, int distanceFromIntersection, int orientation) {
-  // define 2 paths
-  // path 1: from the last node to the goal node (distance = path + distanceFromIntersaction)
-  // path 2: from the following node, to the (distance = path + (distanceBetweenIntersactions - distanceFromIntersaction))
-  // choose the path with the lowest distance
-
-  // specialNode will tell us if the robot will cross the node without dark line. If it doesn't cross that node, or if it does it and the order is to go forward, the number will stay at -1
-  // Otherwise the number will corespond to the number of the order.
-
-  int specialNode = -1;
-  Node* path1[MAX_NODES];
-  //Node* path2[MAX_NODES];
-  Serial.println("Path 1 calculation");
-  int size1 = AStar_Algorithm(intersectionNodes[currentIntersection], finalCylinderNode, path1);
-  //Serial.println("Path 2 calculation");
-  //int size2 = AStar_Algorithm(intersectionNodes[currentIntersection + 1], finalCylinderNode, path2);
-
-  importantVectors myVectors;
-
-  /*if (size1 > size2) {
+    /*if (size1 > size2) {
     myVectors = translateNodes2Orders(path2, size2, orientation);
   } else {
     orientation = (orientation + 2) % 4;
     myVectors = translateNodes2Orders(path1, size1, orientation);
   }*/
-  myVectors = translateNodes2Orders(path1, size1, orientation);
+    myVectors = translateNodes2Orders(path1, size1, orientation);
 
-  ordersAndIndex out;
-  out.size = 0;
-  out.index = -1;
+    ordersAndIndex out;
+    out.size = 0;
+    out.index = -1;
 
-  for (int i = 0; i < myVectors.size; i++) {
-    out.orders[out.size] = myVectors.orders[i];
-    if (myVectors.nodes[i]->x == 4 && myVectors.nodes[i]->y == 4) {
-      if (myVectors.orders[i] != FORWARD) out.index = out.size;
+    for (int i = 0; i < myVectors.size; i++) {
+      out.orders[out.size] = myVectors.orders[i];
+      if (myVectors.nodes[i]->x == 4 && myVectors.nodes[i]->y == 4) {
+        if (myVectors.orders[i] != FORWARD) out.index = out.size;
+      }
+      out.size++;
     }
-    out.size++;
-  }
 
-  /*if (path1.size() <= path2.size()) {
+    /*if (path1.size() <= path2.size()) {
       insertAtFront(finalOrders, BACKWARD);
     }*/
 
-  out.orders[out.size++] = FORWARD;
-  out.orders[out.size++] = LEFT;
-  out.orders[out.size++] = LEFT;
+    out.orders[out.size++] = FORWARD;
+    out.orders[out.size++] = LEFT;
+    out.orders[out.size++] = LEFT;
 
-  int n = out.size;
-  Serial.println(n);
+    int n = out.size;
+    Serial.println(n);
 
-  // Testing if this will change the whole intersection array
+    // Testing if this will change the whole intersection array
 
-  for (int i = 0; i < n; i++) {
-    intersectionTurns[i] = out.orders[i];
-    if (intersectionTurns[i] == FORWARD) Serial.println("forward");
-    if (intersectionTurns[i] == BACKWARD) Serial.println("backward");
-    if (intersectionTurns[i] == LEFT) Serial.println("left");
-    if (intersectionTurns[i] == RIGHT) Serial.println("right");
+    for (int i = 0; i < n; i++) {
+      intersectionTurns[i] = out.orders[i];
+      if (intersectionTurns[i] == FORWARD) Serial.println("forward");
+      if (intersectionTurns[i] == BACKWARD) Serial.println("backward");
+      if (intersectionTurns[i] == LEFT) Serial.println("left");
+      if (intersectionTurns[i] == RIGHT) Serial.println("right");
+    }
+    Serial.println("Updated the intersectionTurns!");
+
+
+    return out;
   }
-  Serial.println("Updated the intersectionTurns!");
 
-
-  return out;
-}
-
-/*
+  /*
 template<typename T>
 void reverseVector(Vector<T>& v) {
     int n = v.size();
@@ -1301,7 +1299,7 @@ void insertAtFront(Vector<T>& v, const T& value) {
 }*/
 
 
-/*
+  /*
 void ENCODER_RIGHT_A_ISR() {
   int stateA = digitalRead(ENCODER_RIGHT_A);
   int stateB = digitalRead(ENCODER_RIGHT_B);
